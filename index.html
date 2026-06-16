@@ -3,102 +3,91 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>学生座次安排</title>
+    <title>大锄头 - 园丁工具台</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <main class="app-shell">
-      <aside class="sidebar" aria-label="座次工具栏">
-        <header class="brand">
-          <div>
-            <p class="eyebrow">Seat Planner</p>
-            <h1>学生座次安排</h1>
-          </div>
-          <span class="save-state" id="saveState">已自动保存</span>
-        </header>
-
-        <section class="panel">
-          <div class="panel-title">
-            <h2>导入学生</h2>
-            <span id="studentCount">0 人</span>
-          </div>
-          <textarea id="nameInput" placeholder="每行一个姓名，也可以用逗号、空格分隔"></textarea>
-          <div class="button-row">
-            <button class="primary" id="importNamesBtn" type="button">导入名单</button>
-            <label class="file-button" for="fileInput">导入文件</label>
-            <input id="fileInput" type="file" accept=".txt,.csv" />
-          </div>
-        </section>
-
-        <section class="panel">
-          <div class="panel-title">
-            <h2>导入座次</h2>
-            <span>覆盖当前座位</span>
-          </div>
-          <textarea id="seatInput" placeholder="第 1 行：张三，李四，空&#10;第 2 行：王五，空，赵六"></textarea>
-          <div class="button-row">
-            <button class="primary" id="importSeatsBtn" type="button">导入座次</button>
-            <label class="file-button" for="seatFileInput">导入座次文件</label>
-            <input id="seatFileInput" type="file" accept=".txt,.csv,.json" />
-          </div>
-        </section>
-
-        <section class="panel">
-          <div class="panel-title">
-            <h2>座位尺寸</h2>
-            <span id="seatCount">0 座</span>
-          </div>
-          <div class="field-grid">
-            <label>
-              行数
-              <input id="rowsInput" type="number" min="1" max="12" value="4" />
-            </label>
-            <label>
-              列数
-              <input id="colsInput" type="number" min="1" max="12" value="6" />
-            </label>
-          </div>
-          <div class="button-grid">
-            <button id="applySizeBtn" type="button">应用行列</button>
-            <button id="addRowBtn" type="button">加一行</button>
-            <button id="removeRowBtn" type="button">减一行</button>
-            <button id="addColBtn" type="button">加一列</button>
-            <button id="removeColBtn" type="button">减一列</button>
-          </div>
-        </section>
-
-        <section class="panel roster-panel">
-          <div class="panel-title">
-            <h2>未入座</h2>
-            <span id="unassignedCount">0 人</span>
-          </div>
-          <div class="roster" id="roster" aria-label="未入座学生名单"></div>
-        </section>
-
-        <section class="panel actions">
-          <button id="exportBtn" type="button">导出座次</button>
-          <button id="clearSeatsBtn" type="button">清空座位</button>
-          <button class="danger" id="resetBtn" type="button">重置全部</button>
-        </section>
-      </aside>
-
-      <section class="workspace" aria-label="座位表">
-        <div class="workspace-header">
-          <div>
-            <p class="eyebrow">Classroom</p>
-            <h2>讲台</h2>
-          </div>
-          <div class="legend">
-            <span><i class="dot filled"></i> 已安排</span>
-            <span><i class="dot empty"></i> 空座位</span>
-          </div>
+    <main class="home-shell">
+      <header class="topbar">
+        <div class="brand-mark" aria-hidden="true">大</div>
+        <div class="brand-copy">
+          <p class="eyebrow">Big Hoe</p>
+          <h1>大锄头</h1>
+          <p>给老师准备的班级小工具台</p>
         </div>
-        <div class="board-wrap">
-          <div class="board" id="board"></div>
-        </div>
+        <label class="class-switcher">
+          当前班级
+          <select id="classSelect"></select>
+        </label>
+      </header>
+
+      <section class="home-grid" aria-label="工具首页">
+        <section class="tool-board">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Tools</p>
+              <h2>工具入口</h2>
+            </div>
+            <span id="activeClassMeta">默认班级</span>
+          </div>
+
+          <div class="tool-grid">
+            <a class="tool-card available" href="students.html">
+              <span class="tool-icon">管</span>
+              <strong>班级和学生管理</strong>
+              <span>统一维护班级、学生名单和学生状态。</span>
+            </a>
+            <a class="tool-card available" href="seating.html">
+              <span class="tool-icon">座</span>
+              <strong>学生座次安排</strong>
+              <span>选择班级后，使用公共名单拖拽完成排座。</span>
+            </a>
+            <article class="tool-card disabled">
+              <span class="tool-icon">作</span>
+              <strong>作业提交记录</strong>
+              <span>下一步开发：按日记录、按周统计、生成未交名单。</span>
+            </article>
+            <article class="tool-card disabled">
+              <span class="tool-icon">绩</span>
+              <strong>成绩记录分析</strong>
+              <span>下一步开发：导入成绩、生成学生趋势折线图。</span>
+            </article>
+          </div>
+        </section>
+
+        <aside class="data-panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Overview</p>
+              <h2>当前班级概览</h2>
+            </div>
+          </div>
+
+          <div class="overview-list">
+            <div class="overview-item">
+              <span>班级</span>
+              <strong id="classNameMeta">默认班级</strong>
+            </div>
+            <div class="overview-item">
+              <span>学生人数</span>
+              <strong id="studentCount">0 人</strong>
+            </div>
+            <div class="overview-item">
+              <span>在读学生</span>
+              <strong id="activeStudentCount">0 人</strong>
+            </div>
+            <div class="overview-item">
+              <span>学年/学期</span>
+              <strong id="termMeta">未设置</strong>
+            </div>
+          </div>
+
+          <a class="primary link-button" href="students.html">管理班级和学生</a>
+        </aside>
       </section>
     </main>
 
-    <script src="app.js"></script>
+    <script src="shared.js"></script>
+    <script src="home.js"></script>
   </body>
 </html>

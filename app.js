@@ -1,26 +1,24 @@
-const STORAGE_KEY = "seat-planner-state-v1";
+const SEAT_STORAGE_PREFIX = "bighoe-seat-plan-v1";
 
 const state = {
   rows: 4,
   cols: 6,
-  students: [],
   seats: []
 };
 
 const els = {
   board: document.querySelector("#board"),
   roster: document.querySelector("#roster"),
-  nameInput: document.querySelector("#nameInput"),
   seatInput: document.querySelector("#seatInput"),
-  fileInput: document.querySelector("#fileInput"),
   seatFileInput: document.querySelector("#seatFileInput"),
+  classSelect: document.querySelector("#classSelect"),
   rowsInput: document.querySelector("#rowsInput"),
   colsInput: document.querySelector("#colsInput"),
   studentCount: document.querySelector("#studentCount"),
   unassignedCount: document.querySelector("#unassignedCount"),
   seatCount: document.querySelector("#seatCount"),
   saveState: document.querySelector("#saveState"),
-  importNamesBtn: document.querySelector("#importNamesBtn"),
+  currentClassName: document.querySelector("#currentClassName"),
   importSeatsBtn: document.querySelector("#importSeatsBtn"),
   applySizeBtn: document.querySelector("#applySizeBtn"),
   addRowBtn: document.querySelector("#addRowBtn"),
@@ -35,15 +33,12 @@ const els = {
 let draggedId = null;
 let saveTimer = null;
 
-function createId() {
-  return `student-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+function activeClass() {
+  return BighoeData.getActiveClass();
 }
 
-function normalizeNames(text) {
-  return text
-    .split(/[\n,，、;\s]+/)
-    .map((name) => name.trim())
-    .filter(Boolean);
+function seatStorageKey() {
+  return `${SEAT_STORAGE_PREFIX}-${activeClass().id}`;
 }
 
 function normalizeSeatName(name) {
@@ -64,28 +59,31 @@ function ensureSeatSize() {
   }
 }
 
+function getStudents() {
+  return BighoeData.getStudents(activeClass().id, { includeInactive: true });
+}
+
 function getAssignedIds() {
   return new Set(state.seats.filter(Boolean));
 }
 
 function getStudent(id) {
-  return state.students.find((student) => student.id === id);
+  return BighoeData.getStudentById(id);
 }
 
-function getOrCreateStudentByName(name) {
+function getStudentBySeatName(name) {
   const normalized = normalizeSeatName(name);
   if (!normalized || isEmptySeat(normalized)) return null;
+  return BighoeData.findStudentByName(normalized, activeClass().id) || { missingName: normalized };
+}
 
-  let student = state.students.find((item) => item.name === normalized);
-  if (!student) {
-    student = { id: createId(), name: normalized };
-    state.students.push(student);
-  }
-  return student;
+function pruneMissingStudents() {
+  const knownIds = new Set(getStudents().map((student) => student.id));
+  state.seats = state.seats.map((studentId) => (knownIds.has(studentId) ? studentId : null));
 }
 
 function saveState() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  localStorage.setItem(seatStorageKey(), JSON.stringify(state));
   els.saveState.textContent = "已自动保存";
   window.clearTimeout(saveTimer);
   saveTimer = window.setTimeout(() => {
@@ -95,12 +93,28 @@ function saveState() {
 
 function markChanged() {
   els.saveState.textContent = "保存中...";
+  pruneMissingStudents();
   render();
   saveState();
 }
 
 function loadState() {
-  const stored = localStorage.getItem(STORAGE_KEY);
+  state.rows = 4;
+  state.cols = 6;
+  state.seats = [];
+
+  const migrated = BighoeData.migrateLegacySeatPlanner();
+  const stored = localStorage.getItem(seatStorageKey());
+
+  if (!stored && migrated && migrated.classId === activeClass().id) {
+    state.rows = migrated.rows;
+    state.cols = migrated.cols;
+    state.seats = migrated.seats;
+    ensureSeatSize();
+    saveState();
+    return;
+  }
+
   if (!stored) {
     ensureSeatSize();
     return;
@@ -110,9 +124,9 @@ function loadState() {
     const parsed = JSON.parse(stored);
     state.rows = Number(parsed.rows) || state.rows;
     state.cols = Number(parsed.cols) || state.cols;
-    state.students = Array.isArray(parsed.students) ? parsed.students : [];
     state.seats = Array.isArray(parsed.seats) ? parsed.seats : [];
     ensureSeatSize();
+    pruneMissingStudents();
   } catch {
     ensureSeatSize();
   }
@@ -192,7 +206,7 @@ function renderBoard() {
 
 function renderRoster() {
   const assigned = getAssignedIds();
-  const unassigned = state.students.filter((student) => !assigned.has(student.id));
+  const unassigned = getStudents().filter((student) => !assigned.has(student.id));
   els.roster.innerHTML = "";
 
   if (!unassigned.length) {
@@ -208,25 +222,27 @@ function renderRoster() {
 }
 
 function render() {
+  const students = getStudents();
+  renderClassSelect();
+  els.currentClassName.textContent = activeClass().name;
   els.rowsInput.value = state.rows;
   els.colsInput.value = state.cols;
-  els.studentCount.textContent = `${state.students.length} 人`;
+  els.studentCount.textContent = `${students.length} 人`;
   els.seatCount.textContent = `${state.rows * state.cols} 座`;
   renderBoard();
   renderRoster();
 }
 
-function importNames(text) {
-  const existing = new Set(state.students.map((student) => student.name));
-  const names = normalizeNames(text).filter((name) => {
-    if (existing.has(name)) return false;
-    existing.add(name);
-    return true;
+function renderClassSelect() {
+  const sharedState = BighoeData.readState();
+  els.classSelect.innerHTML = "";
+  sharedState.classes.forEach((classItem) => {
+    const option = document.createElement("option");
+    option.value = classItem.id;
+    option.textContent = classItem.name;
+    option.selected = classItem.id === sharedState.activeClassId;
+    els.classSelect.appendChild(option);
   });
-  const newStudents = names.map((name) => ({ id: createId(), name }));
-  state.students.push(...newStudents);
-  els.nameInput.value = "";
-  markChanged();
 }
 
 function splitSeatRow(rowText) {
@@ -269,13 +285,23 @@ function importSeats(text) {
   const nextRows = Math.min(12, rows.length);
   const nextCols = Math.min(12, Math.max(...rows.map((row) => row.length)));
   const nextSeats = Array(nextRows * nextCols).fill(null);
+  const missingNames = new Set();
 
   rows.slice(0, nextRows).forEach((row, rowIndex) => {
     row.slice(0, nextCols).forEach((name, colIndex) => {
-      const student = getOrCreateStudentByName(String(name));
+      const student = getStudentBySeatName(String(name));
+      if (student?.missingName) {
+        missingNames.add(student.missingName);
+        return;
+      }
       nextSeats[rowIndex * nextCols + colIndex] = student ? student.id : null;
     });
   });
+
+  if (missingNames.size) {
+    alert(`以下学生不在当前班级名单中，请先到“班级和学生管理”添加：\n${[...missingNames].join("、")}`);
+    return;
+  }
 
   state.rows = nextRows;
   state.cols = nextCols;
@@ -309,12 +335,16 @@ function exportSeats() {
   const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
   const link = document.createElement("a");
   link.href = URL.createObjectURL(blob);
-  link.download = "学生座次表.txt";
+  link.download = `${activeClass().name}-学生座次表.txt`;
   link.click();
   URL.revokeObjectURL(link.href);
 }
 
-els.importNamesBtn.addEventListener("click", () => importNames(els.nameInput.value));
+els.classSelect.addEventListener("change", () => {
+  BighoeData.setActiveClass(els.classSelect.value);
+  loadState();
+  render();
+});
 els.importSeatsBtn.addEventListener("click", () => {
   if (!els.seatInput.value.trim()) return;
   if (hasSeatArrangement() && !confirm("导入座次会覆盖当前座位安排，确定继续吗？")) return;
@@ -330,19 +360,12 @@ els.clearSeatsBtn.addEventListener("click", () => {
   markChanged();
 });
 els.resetBtn.addEventListener("click", () => {
-  if (!confirm("确定要重置全部名单和座位吗？")) return;
-  state.students = [];
+  if (!confirm("确定要重置当前班级的座位安排吗？公共学生名单会保留。")) return;
   state.seats = Array(state.rows * state.cols).fill(null);
-  localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(seatStorageKey());
   markChanged();
 });
 els.exportBtn.addEventListener("click", exportSeats);
-els.fileInput.addEventListener("change", async () => {
-  const [file] = els.fileInput.files;
-  if (!file) return;
-  importNames(await file.text());
-  els.fileInput.value = "";
-});
 els.seatFileInput.addEventListener("change", async () => {
   const [file] = els.seatFileInput.files;
   if (!file) return;

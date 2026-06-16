@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>班级和学生管理 - 大锄头</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="home-shell">
+      <header class="topbar">
+        <div class="brand-mark" aria-hidden="true">管</div>
+        <div class="brand-copy">
+          <a class="back-link" href="index.html">返回工具首页</a>
+          <p class="eyebrow">Class Roster</p>
+          <h1>班级和学生管理</h1>
+          <p>统一维护班级和学生，其他工具只读取这里的数据</p>
+        </div>
+        <label class="class-switcher">
+          当前班级
+          <select id="classSelect"></select>
+        </label>
+      </header>
+
+      <section class="manager-grid" aria-label="班级和学生管理">
+        <aside class="data-panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Class</p>
+              <h2>班级信息</h2>
+            </div>
+          </div>
+
+          <div class="panel-block first">
+            <label>
+              新建班级
+              <div class="inline-form">
+                <input id="classNameInput" type="text" placeholder="例如：三年级 2 班" />
+                <button id="addClassBtn" type="button">添加</button>
+              </div>
+            </label>
+          </div>
+
+          <div class="panel-block">
+            <label>
+              班级名称
+              <input id="editClassNameInput" type="text" placeholder="班级名称" />
+            </label>
+            <div class="field-grid">
+              <label>
+                学年
+                <input id="schoolYearInput" type="text" placeholder="2026-2027" />
+              </label>
+              <label>
+                学期
+                <input id="termInput" type="text" placeholder="上学期" />
+              </label>
+            </div>
+            <button class="primary full-button" id="saveClassBtn" type="button">保存班级信息</button>
+          </div>
+        </aside>
+
+        <section class="tool-board">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Students</p>
+              <h2>学生名单</h2>
+            </div>
+            <span id="studentCount">0 人</span>
+          </div>
+
+          <div class="student-manager">
+            <section class="panel-block first">
+              <h3>添加学生</h3>
+              <div class="student-form">
+                <input id="studentNameInput" type="text" placeholder="姓名" />
+                <input id="studentNoInput" type="text" placeholder="学号，可选" />
+                <select id="studentStatusInput">
+                  <option value="active">在读</option>
+                  <option value="transferred">已转出</option>
+                  <option value="paused">休学</option>
+                  <option value="graduated">毕业</option>
+                </select>
+                <button class="primary" id="addStudentBtn" type="button">添加学生</button>
+              </div>
+            </section>
+
+            <section class="panel-block">
+              <h3>批量导入</h3>
+              <textarea id="studentInput" placeholder="每行一个姓名，也可以用逗号、空格分隔"></textarea>
+              <div class="button-row">
+                <button class="primary" id="importStudentsBtn" type="button">导入到当前班级</button>
+                <label class="file-button" for="studentFileInput">导入文件</label>
+                <input id="studentFileInput" type="file" accept=".txt,.csv" />
+                <button id="exportStudentsBtn" type="button">导出名单</button>
+              </div>
+            </section>
+
+            <section class="panel-block">
+              <div class="section-heading compact">
+                <h3>当前名单</h3>
+                <span id="activeClassMeta">默认班级</span>
+              </div>
+              <div class="student-table" id="studentTable"></div>
+            </section>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script src="shared.js"></script>
+    <script src="students.js"></script>
+  </body>
+</html>

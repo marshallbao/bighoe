@@ -3,7 +3,8 @@ const fs = require("fs");
 const path = require("path");
 
 const root = __dirname;
-const port = Number(process.argv[2]) || 5173;
+const port = Number(process.env.PORT || process.argv[2]) || 5173;
+const host = process.env.HOST || "127.0.0.1";
 const types = {
   ".html": "text/html;charset=utf-8",
   ".css": "text/css;charset=utf-8",
@@ -12,7 +13,7 @@ const types = {
 };
 
 const server = http.createServer((req, res) => {
-  const url = new URL(req.url, `http://127.0.0.1:${port}`);
+  const url = new URL(req.url, `http://0.0.0.0:${port}`);
   const requestedPath = url.pathname === "/" ? "index.html" : url.pathname.slice(1);
   const filePath = path.resolve(root, requestedPath);
 
@@ -34,6 +35,6 @@ const server = http.createServer((req, res) => {
   });
 });
 
-server.listen(port, "127.0.0.1", () => {
-  console.log(`Seat planner is running at http://127.0.0.1:${port}/`);
+server.listen(port, host, () => {
+  console.log(`Bighoe tools are running at http://${host}:${port}/`);
 });
