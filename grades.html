@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>成绩记录分析 - 大锄头</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="home-shell">
+      <header class="topbar">
+        <div class="brand-mark" aria-hidden="true">绩</div>
+        <div class="brand-copy">
+          <a class="back-link" href="index.html">返回工具首页</a>
+          <p class="eyebrow">Grades</p>
+          <h1>成绩记录分析</h1>
+          <p>按考试和科目记录成绩，查看学生成绩变化趋势</p>
+        </div>
+        <label class="class-switcher">
+          当前班级
+          <select id="classSelect"></select>
+        </label>
+      </header>
+
+      <section class="manager-grid">
+        <aside class="data-panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Subjects</p>
+              <h2>科目管理</h2>
+            </div>
+          </div>
+
+          <div class="panel-block first">
+            <label>
+              新增科目
+              <div class="inline-form">
+                <input id="subjectNameInput" type="text" placeholder="例如：数学" />
+                <button id="addSubjectBtn" type="button">添加</button>
+              </div>
+            </label>
+            <div class="compact-list" id="subjectList"></div>
+          </div>
+
+          <div class="panel-block">
+            <div class="section-heading compact">
+              <h2>考试列表</h2>
+              <span id="examCount">0 场</span>
+            </div>
+            <div class="compact-list" id="examList"></div>
+          </div>
+        </aside>
+
+        <section class="tool-board">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Exam</p>
+              <h2>创建考试</h2>
+            </div>
+          </div>
+
+          <div class="exam-form">
+            <input id="examNameInput" type="text" placeholder="例如：第一次月考" />
+            <input id="examDateInput" type="date" />
+            <input id="examTermInput" type="text" placeholder="学期，可选" />
+            <button class="primary" id="createExamBtn" type="button">创建考试</button>
+          </div>
+
+          <div class="panel-block">
+            <div class="section-heading compact">
+              <h2 id="selectedExamTitle">选择一场考试</h2>
+              <button id="exportScoresBtn" type="button">导出成绩</button>
+            </div>
+            <div class="score-table" id="scoreTable"></div>
+          </div>
+
+          <div class="panel-block">
+            <div class="section-heading compact">
+              <h2>批量导入成绩</h2>
+              <button id="importScoresBtn" type="button">导入到当前考试</button>
+            </div>
+            <textarea id="scoreImportInput" placeholder="第一行写科目，第一列写姓名&#10;姓名,数学,语文&#10;张三,95,88"></textarea>
+          </div>
+
+          <div class="panel-block">
+            <div class="section-heading compact">
+              <h2>趋势分析</h2>
+              <div class="analysis-controls">
+                <select id="trendStudentSelect"></select>
+                <select id="trendSubjectSelect"></select>
+              </div>
+            </div>
+            <div class="chart-panel">
+              <svg id="trendChart" viewBox="0 0 640 240" role="img" aria-label="成绩趋势图"></svg>
+            </div>
+            <div class="analysis-table" id="gradeAnalysis"></div>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script src="shared.js"></script>
+    <script src="grades.js"></script>
+  </body>
+</html>

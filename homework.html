@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>作业提交记录 - 大锄头</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="home-shell">
+      <header class="topbar">
+        <div class="brand-mark" aria-hidden="true">作</div>
+        <div class="brand-copy">
+          <a class="back-link" href="index.html">返回工具首页</a>
+          <p class="eyebrow">Homework</p>
+          <h1>作业提交记录</h1>
+          <p>按班级记录每日作业提交情况，自动汇总未交和提交率</p>
+        </div>
+        <label class="class-switcher">
+          当前班级
+          <select id="classSelect"></select>
+        </label>
+      </header>
+
+      <section class="manager-grid">
+        <aside class="data-panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Create</p>
+              <h2>新建作业</h2>
+            </div>
+          </div>
+
+          <div class="panel-block first">
+            <label>
+              作业标题
+              <input id="homeworkTitleInput" type="text" placeholder="例如：数学练习册 P12" />
+            </label>
+            <div class="field-grid">
+              <label>
+                科目
+                <input id="homeworkSubjectInput" type="text" placeholder="数学" />
+              </label>
+              <label>
+                日期
+                <input id="homeworkDateInput" type="date" />
+              </label>
+            </div>
+            <label>
+              备注
+              <textarea id="homeworkNoteInput" placeholder="可选"></textarea>
+            </label>
+            <button class="primary full-button" id="createHomeworkBtn" type="button">创建作业</button>
+          </div>
+
+          <div class="panel-block">
+            <div class="section-heading compact">
+              <h2>作业列表</h2>
+              <span id="homeworkCount">0 项</span>
+            </div>
+            <div class="compact-list" id="homeworkList"></div>
+          </div>
+        </aside>
+
+        <section class="tool-board">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Record</p>
+              <h2 id="selectedHomeworkTitle">选择一项作业</h2>
+            </div>
+            <div class="segmented-control">
+              <button id="markAllSubmittedBtn" type="button">全班已交</button>
+              <button id="copyMissingBtn" type="button">复制未交名单</button>
+            </div>
+          </div>
+
+          <div class="summary-grid">
+            <div class="summary-card"><span>应交</span><strong id="dueCount">0</strong></div>
+            <div class="summary-card"><span>已交</span><strong id="submittedCount">0</strong></div>
+            <div class="summary-card"><span>未交</span><strong id="missingCount">0</strong></div>
+            <div class="summary-card"><span>按时率</span><strong id="onTimeRate">0%</strong></div>
+          </div>
+
+          <div class="panel-block first">
+            <div class="record-table" id="recordTable"></div>
+          </div>
+
+          <div class="panel-block">
+            <div class="section-heading compact">
+              <h2>统计分析</h2>
+              <div class="segmented-control">
+                <button class="active" data-period="week" type="button">本周</button>
+                <button data-period="month" type="button">本月</button>
+                <button data-period="term" type="button">本学期</button>
+              </div>
+            </div>
+            <div class="analysis-table" id="homeworkAnalysis"></div>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script src="shared.js"></script>
+    <script src="homework.js"></script>
+  </body>
+</html>
