@@ -1,4 +1,3 @@
-const HOMEWORK_KEY = "bighoe-homework-v1";
 const homeworkStatuses = [
   { value: "submitted", label: "已交" },
   { value: "missing", label: "未交" },
@@ -30,22 +29,23 @@ const homeworkEls = {
 
 let selectedHomeworkId = null;
 let analysisPeriod = "week";
+let classStudentsCache = [];
+let classTasksCache = [];
 
 function todayText() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function readHomeworkState() {
+async function readHomeworkState() {
+  const activeCls = activeClass();
+  if (!activeCls) return { tasks: [] };
   try {
-    const parsed = JSON.parse(localStorage.getItem(HOMEWORK_KEY));
-    return Array.isArray(parsed?.tasks) ? parsed : { tasks: [] };
-  } catch {
+    const tasks = await fetch(`/api/homework?classId=${activeCls.id}`).then((r) => r.json());
+    return { tasks };
+  } catch (err) {
+    console.error("Failed to read homework state:", err);
     return { tasks: [] };
   }
-}
-
-function writeHomeworkState(state) {
-  localStorage.setItem(HOMEWORK_KEY, JSON.stringify(state));
 }
 
 function activeClass() {
@@ -53,13 +53,11 @@ function activeClass() {
 }
 
 function classStudents() {
-  return BighoeData.getStudents(activeClass().id).filter((student) => student.status === "active");
+  return classStudentsCache;
 }
 
 function classTasks() {
-  return readHomeworkState()
-    .tasks.filter((task) => task.classId === activeClass().id)
-    .sort((a, b) => b.assignedDate.localeCompare(a.assignedDate));
+  return classTasksCache;
 }
 
 function selectedTask() {
@@ -80,14 +78,13 @@ function samePeriod(taskDate, period) {
   return true;
 }
 
-function renderClassSelect() {
-  const state = BighoeData.readState();
+function renderClassSelectWithOptions(classes, activeClassId) {
   homeworkEls.classSelect.innerHTML = "";
-  state.classes.forEach((classItem) => {
+  classes.forEach((classItem) => {
     const option = document.createElement("option");
     option.value = classItem.id;
     option.textContent = classItem.name;
-    option.selected = classItem.id === state.activeClassId;
+    option.selected = classItem.id === activeClassId;
     homeworkEls.classSelect.appendChild(option);
   });
 }
@@ -110,9 +107,9 @@ function renderHomeworkList(tasks) {
     item.type = "button";
     item.innerHTML = `<strong></strong><span>${task.assignedDate} · ${task.subject || "未设置科目"}</span>`;
     item.querySelector("strong").textContent = task.title;
-    item.addEventListener("click", () => {
+    item.addEventListener("click", async () => {
       selectedHomeworkId = task.id;
-      render();
+      await render();
     });
     homeworkEls.homeworkList.appendChild(item);
   });
@@ -227,59 +224,91 @@ function renderAnalysis(students) {
   });
 }
 
-function updateRecord(taskId, studentId, status) {
-  const state = readHomeworkState();
-  const task = state.tasks.find((item) => item.id === taskId);
+async function updateRecord(taskId, studentId, status) {
+  const task = classTasksCache.find((item) => item.id === taskId);
   if (!task) return;
+  
   task.records = task.records || {};
   task.records[studentId] = status;
-  task.updatedAt = new Date().toISOString();
-  writeHomeworkState(state);
-  render();
+
+  try {
+    const res = await fetch("/api/homework/update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: taskId, records: task.records })
+    });
+    if (!res.ok) throw new Error("Failed to update homework records");
+    await render();
+  } catch (err) {
+    console.error("Failed to update record:", err);
+  }
 }
 
-function createHomework() {
+async function createHomework() {
   const title = homeworkEls.titleInput.value.trim();
   if (!title) {
     alert("请填写作业标题。");
     return;
   }
 
+  const activeCls = activeClass();
+  if (!activeCls) return;
+
   const assignedDate = homeworkEls.dateInput.value || todayText();
-  const state = readHomeworkState();
+  const records = {};
+  classStudents().forEach((student) => {
+    records[student.id] = "missing";
+  });
+
   const task = {
     id: BighoeData.createId("homework"),
-    classId: activeClass().id,
+    classId: activeCls.id,
     title,
     subject: homeworkEls.subjectInput.value.trim(),
     assignedDate,
     weekStart: startOfWeek(assignedDate),
     note: homeworkEls.noteInput.value.trim(),
-    records: {},
-    createdAt: new Date().toISOString()
+    records
   };
-  classStudents().forEach((student) => {
-    task.records[student.id] = "missing";
-  });
-  state.tasks.push(task);
-  writeHomeworkState(state);
-  selectedHomeworkId = task.id;
-  homeworkEls.titleInput.value = "";
-  homeworkEls.subjectInput.value = "";
-  homeworkEls.noteInput.value = "";
-  render();
+
+  try {
+    const res = await fetch("/api/homework/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(task)
+    });
+    if (!res.ok) throw new Error("Failed to create homework");
+
+    selectedHomeworkId = task.id;
+    homeworkEls.titleInput.value = "";
+    homeworkEls.subjectInput.value = "";
+    homeworkEls.noteInput.value = "";
+    await render();
+  } catch (err) {
+    console.error("Failed to create homework:", err);
+  }
 }
 
-function markAllSubmitted() {
+async function markAllSubmitted() {
   const task = selectedTask();
   if (!task) return;
-  const state = readHomeworkState();
-  const storedTask = state.tasks.find((item) => item.id === task.id);
+
+  const records = {};
   classStudents().forEach((student) => {
-    storedTask.records[student.id] = "submitted";
+    records[student.id] = "submitted";
   });
-  writeHomeworkState(state);
-  render();
+
+  try {
+    const res = await fetch("/api/homework/update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: task.id, records })
+    });
+    if (!res.ok) throw new Error("Failed to update homework records");
+    await render();
+  } catch (err) {
+    console.error("Failed to mark all submitted:", err);
+  }
 }
 
 async function copyMissingList() {
@@ -295,33 +324,44 @@ async function copyMissingList() {
   }
 }
 
-function render() {
-  const tasks = classTasks();
+async function render() {
+  const sharedState = await BighoeData.readState();
+  const activeCls = activeClass();
+
+  if (activeCls) {
+    classStudentsCache = await BighoeData.getStudents(activeCls.id);
+    const state = await readHomeworkState();
+    classTasksCache = state.tasks;
+  } else {
+    classStudentsCache = [];
+    classTasksCache = [];
+  }
+
   const task = selectedTask();
-  const students = classStudents();
   if (task && selectedHomeworkId !== task.id) selectedHomeworkId = task.id;
-  renderClassSelect();
-  renderHomeworkList(tasks);
+
+  renderClassSelectWithOptions(sharedState.classes, sharedState.activeClassId);
+  renderHomeworkList(classTasksCache);
   homeworkEls.selectedTitle.textContent = task ? `${task.title}（${task.assignedDate}）` : "选择一项作业";
-  renderSummary(task, students);
-  renderRecordTable(task, students);
-  renderAnalysis(students);
+  renderSummary(task, classStudentsCache);
+  renderRecordTable(task, classStudentsCache);
+  renderAnalysis(classStudentsCache);
 }
 
 homeworkEls.dateInput.value = todayText();
 homeworkEls.createBtn.addEventListener("click", createHomework);
 homeworkEls.markAllSubmittedBtn.addEventListener("click", markAllSubmitted);
 homeworkEls.copyMissingBtn.addEventListener("click", copyMissingList);
-homeworkEls.classSelect.addEventListener("change", () => {
+homeworkEls.classSelect.addEventListener("change", async () => {
   BighoeData.setActiveClass(homeworkEls.classSelect.value);
   selectedHomeworkId = null;
-  render();
+  await render();
 });
 homeworkEls.periodButtons.forEach((button) => {
-  button.addEventListener("click", () => {
+  button.addEventListener("click", async () => {
     analysisPeriod = button.dataset.period;
     homeworkEls.periodButtons.forEach((item) => item.classList.toggle("active", item === button));
-    render();
+    await render();
   });
 });
 

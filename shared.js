@@ -1,6 +1,16 @@
 (function () {
-  const STORAGE_KEY = "bighoe-shared-state-v1";
-  const LEGACY_SEAT_KEY = "seat-planner-state-v1";
+  const ACTIVE_CLASS_KEY = "bighoe-active-class-id";
+  const LEGACY_STORAGE_KEY = "bighoe-shared-state-v1";
+  const LEGACY_SEAT_PREFIX = "bighoe-seat-plan-v1";
+  const LEGACY_HOMEWORK_KEY = "bighoe-homework-v1";
+  const LEGACY_GRADES_KEY = "bighoe-grades-v1";
+
+  let cachedState = {
+    classes: [],
+    activeClassId: null
+  };
+
+  let cachedStudents = [];
 
   function createId(prefix) {
     return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -13,255 +23,268 @@
       .filter(Boolean);
   }
 
-  function defaultState() {
-    const classId = createId("class");
-    return {
-      version: 1,
-      activeClassId: classId,
-      classes: [
-        {
-          id: classId,
-          name: "默认班级",
-          schoolYear: "",
-          term: "",
-          createdAt: new Date().toISOString()
-        }
-      ],
-      students: []
-    };
-  }
+  async function checkAndMigrate() {
+    const legacyState = localStorage.getItem(LEGACY_STORAGE_KEY);
+    if (!legacyState) return;
 
-  function readState() {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (!stored) {
-      const fresh = defaultState();
-      writeState(fresh);
-      return fresh;
-    }
-
+    console.log("Detecting legacy localStorage data. Starting migration to SQLite...");
     try {
-      const parsed = JSON.parse(stored);
-      if (!Array.isArray(parsed.classes) || !Array.isArray(parsed.students)) {
-        const fresh = defaultState();
-        writeState(fresh);
-        return fresh;
-      }
-      if (!parsed.classes.length) {
-        const fresh = defaultState();
-        fresh.students = parsed.students;
-        writeState(fresh);
-        return fresh;
-      }
-      if (!parsed.activeClassId || !parsed.classes.some((item) => item.id === parsed.activeClassId)) {
-        parsed.activeClassId = parsed.classes[0].id;
-        writeState(parsed);
-      }
-      return parsed;
-    } catch {
-      const fresh = defaultState();
-      writeState(fresh);
-      return fresh;
-    }
-  }
+      const state = JSON.parse(legacyState);
+      const hw = JSON.parse(localStorage.getItem(LEGACY_HOMEWORK_KEY) || '{"tasks":[]}');
+      const grades = JSON.parse(localStorage.getItem(LEGACY_GRADES_KEY) || '{"subjects":[],"exams":[]}');
 
-  function writeState(state) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }
-
-  function updateState(mutator) {
-    const state = readState();
-    const result = mutator(state) || state;
-    writeState(result);
-    return result;
-  }
-
-  function getActiveClass(state = readState()) {
-    return state.classes.find((item) => item.id === state.activeClassId) || state.classes[0];
-  }
-
-  function getStudents(classId = readState().activeClassId, options = {}) {
-    const state = readState();
-    return state.students
-      .filter((student) => student.classId === classId)
-      .filter((student) => options.includeInactive || student.status !== "transferred")
-      .sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
-  }
-
-  function importStudents(text, classId = readState().activeClassId) {
-    const names = normalizeNames(text);
-    let added = 0;
-    const state = updateState((draft) => {
-      const existing = new Set(
-        draft.students.filter((student) => student.classId === classId).map((student) => student.name)
-      );
-
-      names.forEach((name) => {
-        if (existing.has(name)) return;
-        existing.add(name);
-        added += 1;
-        draft.students.push({
-          id: createId("student"),
-          classId,
-          name,
-          studentNo: "",
-          status: "active",
-          joinedAt: new Date().toISOString().slice(0, 10),
-          leftAt: "",
-          note: "",
-          createdAt: new Date().toISOString()
+      const seatPlans = {};
+      if (Array.isArray(state.classes)) {
+        state.classes.forEach((c) => {
+          const seatKey = `${LEGACY_SEAT_PREFIX}-${c.id}`;
+          const seatData = localStorage.getItem(seatKey);
+          if (seatData) {
+            try {
+              seatPlans[c.id] = JSON.parse(seatData);
+            } catch (e) {}
+          }
         });
+      }
+
+      const payload = {
+        classes: state.classes || [],
+        students: state.students || [],
+        seatPlans,
+        homeworkTasks: hw.tasks || [],
+        subjects: grades.subjects || [],
+        exams: grades.exams || []
+      };
+
+      const res = await fetch("/api/migrate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
       });
 
-      return draft;
-    });
-
-    return { added, state };
+      if (res.ok) {
+        console.log("Migration to SQLite successful!");
+        localStorage.setItem(`${LEGACY_STORAGE_KEY}-migrated-backup`, legacyState);
+        localStorage.removeItem(LEGACY_STORAGE_KEY);
+        localStorage.removeItem(LEGACY_HOMEWORK_KEY);
+        localStorage.removeItem(LEGACY_GRADES_KEY);
+        if (Array.isArray(state.classes)) {
+          state.classes.forEach((c) => {
+            localStorage.removeItem(`${LEGACY_SEAT_PREFIX}-${c.id}`);
+          });
+        }
+      } else {
+        console.error("Migration request failed status:", res.status);
+      }
+    } catch (err) {
+      console.error("Migration to SQLite failed:", err);
+    }
   }
 
-  function addStudent(student, classId = readState().activeClassId) {
+  async function readState() {
+    // Run migration check first
+    await checkAndMigrate();
+
+    const classes = await fetch("/api/classes").then((r) => r.json());
+    let activeClassId = localStorage.getItem(ACTIVE_CLASS_KEY);
+    if (!activeClassId || !classes.some((item) => item.id === activeClassId)) {
+      activeClassId = classes[0] ? classes[0].id : null;
+      if (activeClassId) {
+        localStorage.setItem(ACTIVE_CLASS_KEY, activeClassId);
+      }
+    }
+
+    cachedState = { classes, activeClassId };
+    return cachedState;
+  }
+
+  function getActiveClass(state = cachedState) {
+    return state.classes.find((item) => item.id === state.activeClassId) || state.classes[0] || null;
+  }
+
+  async function getStudents(classId = cachedState.activeClassId, options = {}) {
+    if (!classId) {
+      classId = localStorage.getItem(ACTIVE_CLASS_KEY);
+    }
+    if (!classId) {
+      cachedStudents = [];
+      return [];
+    }
+
+    const students = await fetch(`/api/students?classId=${classId}`).then((r) => r.json());
+    const sorted = students
+      .filter((student) => options.includeInactive || student.status !== "transferred")
+      .sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
+
+    // Cache students of the loaded class for synchronous operations like lookups
+    cachedStudents = sorted;
+    return sorted;
+  }
+
+  async function importStudents(text, classId = cachedState.activeClassId) {
+    if (!classId) classId = localStorage.getItem(ACTIVE_CLASS_KEY);
+    const names = normalizeNames(text);
+    if (!names.length) return { added: 0 };
+
+    const existingStudents = await getStudents(classId, { includeInactive: true });
+    const existingNames = new Set(existingStudents.map((s) => s.name));
+
+    const toAdd = [];
+    names.forEach((name) => {
+      if (existingNames.has(name)) return;
+      existingNames.add(name);
+      toAdd.push({
+        id: createId("student"),
+        name,
+        studentNo: "",
+        status: "active",
+        joinedAt: new Date().toISOString().slice(0, 10),
+        note: ""
+      });
+    });
+
+    if (!toAdd.length) return { added: 0 };
+
+    const res = await fetch("/api/students/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ classId, students: toAdd })
+    });
+    if (!res.ok) throw new Error("Failed to import students");
+
+    const result = await res.json();
+    return { added: result.count };
+  }
+
+  async function addStudent(student, classId = cachedState.activeClassId) {
+    if (!classId) classId = localStorage.getItem(ACTIVE_CLASS_KEY);
     const name = String(student?.name || "").trim();
     if (!name) return null;
 
-    let created = null;
-    updateState((draft) => {
-      const duplicated = draft.students.some((item) => item.classId === classId && item.name === name);
-      if (duplicated) return draft;
+    const existingStudents = await getStudents(classId, { includeInactive: true });
+    const duplicated = existingStudents.some((item) => item.name === name);
+    if (duplicated) return null;
 
-      created = {
-        id: createId("student"),
-        classId,
+    const newStudent = {
+      id: createId("student"),
+      classId,
+      name,
+      studentNo: String(student?.studentNo || "").trim(),
+      status: student?.status || "active",
+      joinedAt: student?.joinedAt || new Date().toISOString().slice(0, 10),
+      note: String(student?.note || "").trim()
+    };
+
+    const res = await fetch("/api/students/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(newStudent)
+    });
+    if (!res.ok) throw new Error("Failed to create student");
+
+    return await res.json();
+  }
+
+  async function updateStudent(studentId, patch) {
+    const name = String(patch.name || "").trim();
+    if (!name) return null;
+
+    const res = await fetch("/api/students/update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: studentId,
         name,
-        studentNo: String(student?.studentNo || "").trim(),
-        status: student?.status || "active",
-        joinedAt: student?.joinedAt || new Date().toISOString().slice(0, 10),
-        leftAt: student?.leftAt || "",
-        note: String(student?.note || "").trim(),
-        createdAt: new Date().toISOString()
-      };
-      draft.students.push(created);
-      return draft;
+        studentNo: patch.studentNo,
+        status: patch.status,
+        joinedAt: patch.joinedAt,
+        leftAt: patch.leftAt,
+        note: patch.note
+      })
     });
+    if (!res.ok) throw new Error("Failed to update student");
 
-    return created;
+    return await res.json();
   }
 
-  function updateStudent(studentId, patch) {
-    let updated = null;
-    updateState((draft) => {
-      const student = draft.students.find((item) => item.id === studentId);
-      if (!student) return draft;
-
-      const nextName = String(patch.name ?? student.name).trim();
-      if (!nextName) return draft;
-
-      student.name = nextName;
-      student.studentNo = String(patch.studentNo ?? student.studentNo ?? "").trim();
-      student.status = patch.status || student.status || "active";
-      student.joinedAt = patch.joinedAt ?? student.joinedAt ?? "";
-      student.leftAt = patch.leftAt ?? student.leftAt ?? "";
-      student.note = String(patch.note ?? student.note ?? "").trim();
-      student.updatedAt = new Date().toISOString();
-      updated = student;
-      return draft;
-    });
-    return updated;
-  }
-
-  function addClass(name) {
+  async function addClass(name) {
     const trimmed = String(name || "").trim();
     if (!trimmed) return null;
 
-    let created = null;
-    updateState((draft) => {
-      created = {
-        id: createId("class"),
-        name: trimmed,
-        schoolYear: "",
-        term: "",
-        createdAt: new Date().toISOString()
-      };
-      draft.classes.push(created);
-      draft.activeClassId = created.id;
-      return draft;
+    const id = createId("class");
+    const res = await fetch("/api/classes/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, name: trimmed })
     });
+    if (!res.ok) throw new Error("Failed to create class");
 
-    return created;
+    localStorage.setItem(ACTIVE_CLASS_KEY, id);
+    cachedState.activeClassId = id;
+    return await res.json();
   }
 
-  function updateClass(classId, patch) {
-    let updated = null;
-    updateState((draft) => {
-      const classItem = draft.classes.find((item) => item.id === classId);
-      if (!classItem) return draft;
+  async function updateClass(classId, patch) {
+    const nextName = String(patch.name || "").trim();
+    if (!nextName) return null;
 
-      const nextName = String(patch.name ?? classItem.name).trim();
-      if (!nextName) return draft;
-
-      classItem.name = nextName;
-      classItem.schoolYear = String(patch.schoolYear ?? classItem.schoolYear ?? "").trim();
-      classItem.term = String(patch.term ?? classItem.term ?? "").trim();
-      classItem.updatedAt = new Date().toISOString();
-      updated = classItem;
-      return draft;
+    const res = await fetch("/api/classes/update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: classId,
+        name: nextName,
+        schoolYear: patch.schoolYear,
+        term: patch.term
+      })
     });
-    return updated;
+    if (!res.ok) throw new Error("Failed to update class");
+
+    return await res.json();
+  }
+
+  async function deleteClass(classId) {
+    const res = await fetch("/api/classes/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: classId })
+    });
+    if (!res.ok) throw new Error("Failed to delete class");
+
+    const state = await readState();
+    if (state.activeClassId === classId) {
+      const nextActiveId = state.classes[0] ? state.classes[0].id : null;
+      setActiveClass(nextActiveId);
+    }
+    return true;
+  }
+
+  async function deleteStudent(studentId) {
+    const res = await fetch("/api/students/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: studentId })
+    });
+    if (!res.ok) throw new Error("Failed to delete student");
+    return true;
   }
 
   function setActiveClass(classId) {
-    updateState((draft) => {
-      if (draft.classes.some((item) => item.id === classId)) draft.activeClassId = classId;
-      return draft;
-    });
+    localStorage.setItem(ACTIVE_CLASS_KEY, classId);
+    cachedState.activeClassId = classId;
   }
 
-  function findStudentByName(name, classId = readState().activeClassId) {
-    return getStudents(classId, { includeInactive: true }).find((student) => student.name === name);
+  function findStudentByName(name, classId = cachedState.activeClassId) {
+    return cachedStudents.find((student) => student.name === name);
   }
 
   function getStudentById(studentId) {
-    return readState().students.find((student) => student.id === studentId);
-  }
-
-  function migrateLegacySeatPlanner() {
-    const legacy = localStorage.getItem(LEGACY_SEAT_KEY);
-    if (!legacy || localStorage.getItem(`${LEGACY_SEAT_KEY}-migrated`)) return null;
-
-    try {
-      const parsed = JSON.parse(legacy);
-      if (!Array.isArray(parsed.students) || !parsed.students.length) return null;
-      const state = readState();
-      const classId = state.activeClassId;
-      const oldToNew = new Map();
-
-      importStudents(
-        parsed.students.map((student) => student.name).join("\n"),
-        classId
-      );
-
-      parsed.students.forEach((legacyStudent) => {
-        const current = findStudentByName(legacyStudent.name, classId);
-        if (current) oldToNew.set(legacyStudent.id, current.id);
-      });
-
-      localStorage.setItem(`${LEGACY_SEAT_KEY}-migrated`, "true");
-      return {
-        classId,
-        rows: Number(parsed.rows) || 4,
-        cols: Number(parsed.cols) || 6,
-        seats: Array.isArray(parsed.seats) ? parsed.seats.map((id) => oldToNew.get(id) || null) : []
-      };
-    } catch {
-      return null;
-    }
+    return cachedStudents.find((student) => student.id === studentId);
   }
 
   window.BighoeData = {
-    STORAGE_KEY,
     createId,
     normalizeNames,
     readState,
-    writeState,
-    updateState,
     getActiveClass,
     getStudents,
     getStudentById,
@@ -272,6 +295,7 @@
     addClass,
     updateClass,
     setActiveClass,
-    migrateLegacySeatPlanner
+    deleteClass,
+    deleteStudent
   };
 })();

@@ -13,6 +13,7 @@ const els = {
   schoolYearInput: document.querySelector("#schoolYearInput"),
   termInput: document.querySelector("#termInput"),
   saveClassBtn: document.querySelector("#saveClassBtn"),
+  deleteClassBtn: document.querySelector("#deleteClassBtn"),
   studentNameInput: document.querySelector("#studentNameInput"),
   studentNoInput: document.querySelector("#studentNoInput"),
   studentStatusInput: document.querySelector("#studentStatusInput"),
@@ -67,47 +68,62 @@ function renderStudentTable(students) {
         <option value="paused">休学</option>
         <option value="graduated">毕业</option>
       </select>
-      <button type="button">保存</button>
+      <div class="row-actions">
+        <button class="save-btn" type="button">保存</button>
+        <button class="danger delete-btn" type="button">删除</button>
+      </div>
     `;
     row.querySelector(".student-name-edit").value = student.name;
     row.querySelector(".student-no-edit").value = student.studentNo || "";
     row.querySelector(".student-status-edit").value = student.status || "active";
-    row.querySelector("button").addEventListener("click", () => {
-      BighoeData.updateStudent(student.id, {
+    row.querySelector(".save-btn").addEventListener("click", async () => {
+      await BighoeData.updateStudent(student.id, {
         name: row.querySelector(".student-name-edit").value,
         studentNo: row.querySelector(".student-no-edit").value,
         status: row.querySelector(".student-status-edit").value
       });
-      render();
+      await render();
+    });
+    row.querySelector(".delete-btn").addEventListener("click", async () => {
+      if (!confirm(`确定要删除学生「${student.name}」吗？删除后无法恢复。`)) return;
+      await BighoeData.deleteStudent(student.id);
+      await render();
     });
     els.studentTable.appendChild(row);
   });
 }
 
-function render() {
-  const state = BighoeData.readState();
+async function render() {
+  const state = await BighoeData.readState();
   const activeClass = BighoeData.getActiveClass(state);
-  const students = BighoeData.getStudents(state.activeClassId, { includeInactive: true });
+  
+  let students = [];
+  if (activeClass) {
+    students = await BighoeData.getStudents(state.activeClassId, { includeInactive: true });
+  }
 
   renderClassSelect(state);
-  els.editClassNameInput.value = activeClass.name;
-  els.schoolYearInput.value = activeClass.schoolYear || "";
-  els.termInput.value = activeClass.term || "";
+  els.editClassNameInput.value = activeClass ? activeClass.name : "";
+  els.schoolYearInput.value = activeClass ? activeClass.schoolYear || "" : "";
+  els.termInput.value = activeClass ? activeClass.term || "" : "";
   els.studentCount.textContent = `${students.length} 人`;
-  els.activeClassMeta.textContent = activeClass.name;
+  els.activeClassMeta.textContent = activeClass ? activeClass.name : "暂无班级";
   renderStudentTable(students);
 }
 
-function importStudentText(text) {
-  const result = BighoeData.importStudents(text);
+async function importStudentText(text) {
+  const result = await BighoeData.importStudents(text);
   els.studentInput.value = "";
-  render();
+  await render();
   if (!result.added) alert("没有新增学生，可能名单为空或姓名已存在。");
 }
 
-function exportStudents() {
-  const activeClass = BighoeData.getActiveClass();
-  const students = BighoeData.getStudents(activeClass.id, { includeInactive: true });
+async function exportStudents() {
+  const state = await BighoeData.readState();
+  const activeClass = BighoeData.getActiveClass(state);
+  if (!activeClass) return;
+
+  const students = await BighoeData.getStudents(activeClass.id, { includeInactive: true });
   const lines = students.map((student) => {
     const status = statusText[student.status] || student.status || "";
     return [student.name, student.studentNo || "", status].join(",");
@@ -120,29 +136,39 @@ function exportStudents() {
   URL.revokeObjectURL(link.href);
 }
 
-els.classSelect.addEventListener("change", () => {
+els.classSelect.addEventListener("change", async () => {
   BighoeData.setActiveClass(els.classSelect.value);
-  render();
+  await render();
 });
 
-els.addClassBtn.addEventListener("click", () => {
-  const created = BighoeData.addClass(els.classNameInput.value);
+els.addClassBtn.addEventListener("click", async () => {
+  const created = await BighoeData.addClass(els.classNameInput.value);
   if (!created) return;
   els.classNameInput.value = "";
-  render();
+  await render();
 });
 
-els.saveClassBtn.addEventListener("click", () => {
-  BighoeData.updateClass(BighoeData.getActiveClass().id, {
+els.saveClassBtn.addEventListener("click", async () => {
+  const activeClass = BighoeData.getActiveClass();
+  if (!activeClass) return;
+  await BighoeData.updateClass(activeClass.id, {
     name: els.editClassNameInput.value,
     schoolYear: els.schoolYearInput.value,
     term: els.termInput.value
   });
-  render();
+  await render();
 });
 
-els.addStudentBtn.addEventListener("click", () => {
-  const created = BighoeData.addStudent({
+els.deleteClassBtn.addEventListener("click", async () => {
+  const activeClass = BighoeData.getActiveClass();
+  if (!activeClass) return;
+  if (!confirm(`确定要删除班级「${activeClass.name}」吗？该班级下的所有学生、座次、作业和成绩数据都会被一并删除，且无法恢复。`)) return;
+  await BighoeData.deleteClass(activeClass.id);
+  await render();
+});
+
+els.addStudentBtn.addEventListener("click", async () => {
+  const created = await BighoeData.addStudent({
     name: els.studentNameInput.value,
     studentNo: els.studentNoInput.value,
     status: els.studentStatusInput.value
@@ -154,7 +180,7 @@ els.addStudentBtn.addEventListener("click", () => {
   els.studentNameInput.value = "";
   els.studentNoInput.value = "";
   els.studentStatusInput.value = "active";
-  render();
+  await render();
 });
 
 els.importStudentsBtn.addEventListener("click", () => importStudentText(els.studentInput.value));

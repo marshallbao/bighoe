@@ -18,24 +18,28 @@ function renderClassSelect(state) {
   });
 }
 
-function render() {
-  const state = BighoeData.readState();
+async function render() {
+  const state = await BighoeData.readState();
   const activeClass = BighoeData.getActiveClass(state);
-  const allStudents = BighoeData.getStudents(state.activeClassId, { includeInactive: true });
+  
+  let allStudents = [];
+  if (activeClass) {
+    allStudents = await BighoeData.getStudents(state.activeClassId, { includeInactive: true });
+  }
   const activeStudents = allStudents.filter((student) => student.status === "active");
-  const termParts = [activeClass.schoolYear, activeClass.term].filter(Boolean);
+  const termParts = activeClass ? [activeClass.schoolYear, activeClass.term].filter(Boolean) : [];
 
   renderClassSelect(state);
-  els.activeClassMeta.textContent = activeClass.name;
-  els.classNameMeta.textContent = activeClass.name;
+  els.activeClassMeta.textContent = activeClass ? activeClass.name : "暂无班级";
+  els.classNameMeta.textContent = activeClass ? activeClass.name : "暂无班级";
   els.studentCount.textContent = `${allStudents.length} 人`;
   els.activeStudentCount.textContent = `${activeStudents.length} 人`;
   els.termMeta.textContent = termParts.length ? termParts.join(" / ") : "未设置";
 }
 
-els.classSelect.addEventListener("change", () => {
+els.classSelect.addEventListener("change", async () => {
   BighoeData.setActiveClass(els.classSelect.value);
-  render();
+  await render();
 });
 
 render();

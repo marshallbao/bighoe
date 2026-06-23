@@ -1,5 +1,3 @@
-const GRADES_KEY = "bighoe-grades-v1";
-
 const gradeEls = {
   classSelect: document.querySelector("#classSelect"),
   subjectNameInput: document.querySelector("#subjectNameInput"),
@@ -23,22 +21,25 @@ const gradeEls = {
 };
 
 let selectedExamId = null;
+let classStudentsCache = [];
+let classSubjectsCache = [];
+let classExamsCache = [];
 
 function todayText() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function readGradeState() {
+async function readGradeState() {
+  const activeCls = activeClass();
+  if (!activeCls) return { subjects: [], exams: [] };
   try {
-    const parsed = JSON.parse(localStorage.getItem(GRADES_KEY));
-    return Array.isArray(parsed?.subjects) && Array.isArray(parsed?.exams) ? parsed : { subjects: [], exams: [] };
-  } catch {
+    const subjects = await fetch(`/api/subjects?classId=${activeCls.id}`).then((r) => r.json());
+    const exams = await fetch(`/api/exams?classId=${activeCls.id}`).then((r) => r.json());
+    return { subjects, exams };
+  } catch (err) {
+    console.error("Failed to read grade state:", err);
     return { subjects: [], exams: [] };
   }
-}
-
-function writeGradeState(state) {
-  localStorage.setItem(GRADES_KEY, JSON.stringify(state));
 }
 
 function activeClass() {
@@ -46,71 +47,78 @@ function activeClass() {
 }
 
 function classStudents() {
-  return BighoeData.getStudents(activeClass().id).filter((student) => student.status === "active");
+  return classStudentsCache;
 }
 
 function classSubjects(options = {}) {
-  return readGradeState()
-    .subjects.filter((subject) => subject.classId === activeClass().id)
-    .filter((subject) => options.includeInactive || subject.active !== false)
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  return classSubjectsCache
+    .filter((subject) => options.includeInactive || subject.active !== false);
 }
 
 function classExams() {
-  return readGradeState()
-    .exams.filter((exam) => exam.classId === activeClass().id)
-    .sort((a, b) => b.examDate.localeCompare(a.examDate));
+  return classExamsCache;
 }
 
 function selectedExam() {
   return classExams().find((exam) => exam.id === selectedExamId) || classExams()[0] || null;
 }
 
-function renderClassSelect() {
-  const state = BighoeData.readState();
+function renderClassSelectWithOptions(classes, activeClassId) {
   gradeEls.classSelect.innerHTML = "";
-  state.classes.forEach((classItem) => {
+  classes.forEach((classItem) => {
     const option = document.createElement("option");
     option.value = classItem.id;
     option.textContent = classItem.name;
-    option.selected = classItem.id === state.activeClassId;
+    option.selected = classItem.id === activeClassId;
     gradeEls.classSelect.appendChild(option);
   });
 }
 
-function addSubject() {
+async function addSubject() {
   const name = gradeEls.subjectNameInput.value.trim();
   if (!name) return;
-  const state = readGradeState();
-  const duplicated = state.subjects.some((subject) => subject.classId === activeClass().id && subject.name === name);
+  const activeCls = activeClass();
+  if (!activeCls) return;
+
+  const duplicated = classSubjectsCache.some((subject) => subject.name === name);
   if (duplicated) {
     alert("这个科目已经存在。");
     return;
   }
-  state.subjects.push({
-    id: BighoeData.createId("subject"),
-    classId: activeClass().id,
-    name,
-    active: true,
-    createdAt: new Date().toISOString()
-  });
-  writeGradeState(state);
-  gradeEls.subjectNameInput.value = "";
-  render();
-}
 
-function toggleSubject(subjectId, active) {
-  const state = readGradeState();
-  const subject = state.subjects.find((item) => item.id === subjectId);
-  if (subject) {
-    subject.active = active;
-    subject.updatedAt = new Date().toISOString();
-    writeGradeState(state);
+  try {
+    const res = await fetch("/api/subjects/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: BighoeData.createId("subject"),
+        classId: activeCls.id,
+        name
+      })
+    });
+    if (!res.ok) throw new Error("Failed to create subject");
+    gradeEls.subjectNameInput.value = "";
+    await render();
+  } catch (err) {
+    console.error("Failed to add subject:", err);
   }
-  render();
 }
 
-function createExam() {
+async function toggleSubject(subjectId, active) {
+  try {
+    const res = await fetch("/api/subjects/update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: subjectId, active })
+    });
+    if (!res.ok) throw new Error("Failed to update subject status");
+    await render();
+  } catch (err) {
+    console.error("Failed to toggle subject:", err);
+  }
+}
+
+async function createExam() {
   const name = gradeEls.examNameInput.value.trim();
   const subjects = classSubjects();
   if (!name) {
@@ -122,29 +130,40 @@ function createExam() {
     return;
   }
 
-  const state = readGradeState();
+  const activeCls = activeClass();
+  if (!activeCls) return;
+
   const exam = {
     id: BighoeData.createId("exam"),
-    classId: activeClass().id,
+    classId: activeCls.id,
     name,
     examDate: gradeEls.examDateInput.value || todayText(),
     term: gradeEls.examTermInput.value.trim(),
     subjectIds: subjects.map((subject) => subject.id),
-    scores: {},
-    createdAt: new Date().toISOString()
+    scores: {}
   };
-  state.exams.push(exam);
-  writeGradeState(state);
-  selectedExamId = exam.id;
-  gradeEls.examNameInput.value = "";
-  gradeEls.examTermInput.value = "";
-  render();
+
+  try {
+    const res = await fetch("/api/exams/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(exam)
+    });
+    if (!res.ok) throw new Error("Failed to create exam");
+
+    selectedExamId = exam.id;
+    gradeEls.examNameInput.value = "";
+    gradeEls.examTermInput.value = "";
+    await render();
+  } catch (err) {
+    console.error("Failed to create exam:", err);
+  }
 }
 
-function updateScore(examId, studentId, subjectId, value) {
-  const state = readGradeState();
-  const exam = state.exams.find((item) => item.id === examId);
+async function updateScore(examId, studentId, subjectId, value) {
+  const exam = classExamsCache.find((item) => item.id === examId);
   if (!exam) return;
+
   exam.scores = exam.scores || {};
   exam.scores[studentId] = exam.scores[studentId] || {};
   const normalized = String(value).trim();
@@ -153,9 +172,18 @@ function updateScore(examId, studentId, subjectId, value) {
   } else {
     exam.scores[studentId][subjectId] = Number(normalized);
   }
-  exam.updatedAt = new Date().toISOString();
-  writeGradeState(state);
-  renderAnalysis();
+
+  try {
+    const res = await fetch("/api/exams/update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: examId, scores: exam.scores })
+    });
+    if (!res.ok) throw new Error("Failed to update score");
+    renderAnalysis();
+  } catch (err) {
+    console.error("Failed to update score:", err);
+  }
 }
 
 function renderSubjectList(subjects) {
@@ -197,9 +225,9 @@ function renderExamList(exams) {
     item.className = `list-item ${exam.id === selectedExamId ? "active" : ""}`;
     item.innerHTML = `<strong></strong><span>${exam.examDate} · ${exam.term || "未设置学期"}</span>`;
     item.querySelector("strong").textContent = exam.name;
-    item.addEventListener("click", () => {
+    item.addEventListener("click", async () => {
       selectedExamId = exam.id;
-      render();
+      await render();
     });
     gradeEls.examList.appendChild(item);
   });
@@ -414,7 +442,7 @@ function parseScoreRows(text) {
     .map((line) => line.split(/[\t,，]/).map((cell) => cell.trim()));
 }
 
-function importScores() {
+async function importScores() {
   const exam = selectedExam();
   if (!exam) {
     alert("请先创建或选择一场考试。");
@@ -440,8 +468,6 @@ function importScores() {
     return;
   }
 
-  const state = readGradeState();
-  const storedExam = state.exams.find((item) => item.id === exam.id);
   rows.slice(1).forEach((row) => {
     const student = studentMap.get(row[0]);
     if (!student) {
@@ -449,14 +475,14 @@ function importScores() {
       return;
     }
 
-    storedExam.scores = storedExam.scores || {};
-    storedExam.scores[student.id] = storedExam.scores[student.id] || {};
+    exam.scores = exam.scores || {};
+    exam.scores[student.id] = exam.scores[student.id] || {};
     headerSubjects.forEach((subject, index) => {
       if (!subject) return;
       const rawValue = row[index + 1];
       if (rawValue === "") return;
       const score = Number(rawValue);
-      if (!Number.isNaN(score)) storedExam.scores[student.id][subject.id] = score;
+      if (!Number.isNaN(score)) exam.scores[student.id][subject.id] = score;
     });
   });
 
@@ -464,24 +490,43 @@ function importScores() {
     alert(`以下学生不在当前班级名单中，已跳过：\n${missingStudents.join("、")}`);
   }
 
-  storedExam.updatedAt = new Date().toISOString();
-  writeGradeState(state);
-  gradeEls.scoreImportInput.value = "";
-  render();
+  try {
+    const res = await fetch("/api/exams/update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: exam.id, scores: exam.scores })
+    });
+    if (!res.ok) throw new Error("Failed to save imported scores");
+    gradeEls.scoreImportInput.value = "";
+    await render();
+  } catch (err) {
+    console.error("Failed to import scores:", err);
+  }
 }
 
-function render() {
-  const subjects = classSubjects({ includeInactive: true });
-  const exams = classExams();
+async function render() {
+  const sharedState = await BighoeData.readState();
+  const activeCls = activeClass();
+
+  if (activeCls) {
+    classStudentsCache = await BighoeData.getStudents(activeCls.id);
+    const state = await readGradeState();
+    classSubjectsCache = state.subjects;
+    classExamsCache = state.exams;
+  } else {
+    classStudentsCache = [];
+    classSubjectsCache = [];
+    classExamsCache = [];
+  }
+
   const exam = selectedExam();
-  const students = classStudents();
   if (exam && selectedExamId !== exam.id) selectedExamId = exam.id;
 
-  renderClassSelect();
-  renderSubjectList(subjects);
-  renderExamList(exams);
+  renderClassSelectWithOptions(sharedState.classes, sharedState.activeClassId);
+  renderSubjectList(classSubjectsCache);
+  renderExamList(classExamsCache);
   gradeEls.selectedExamTitle.textContent = exam ? `${exam.name}（${exam.examDate}）` : "选择一场考试";
-  renderScoreTable(exam, students, subjects);
+  renderScoreTable(exam, classStudentsCache, classSubjectsCache);
   renderAnalysis();
 }
 
@@ -490,10 +535,10 @@ gradeEls.addSubjectBtn.addEventListener("click", addSubject);
 gradeEls.createExamBtn.addEventListener("click", createExam);
 gradeEls.exportScoresBtn.addEventListener("click", exportScores);
 gradeEls.importScoresBtn.addEventListener("click", importScores);
-gradeEls.classSelect.addEventListener("change", () => {
+gradeEls.classSelect.addEventListener("change", async () => {
   BighoeData.setActiveClass(gradeEls.classSelect.value);
   selectedExamId = null;
-  render();
+  await render();
 });
 gradeEls.trendStudentSelect.addEventListener("change", renderAnalysis);
 gradeEls.trendSubjectSelect.addEventListener("change", renderAnalysis);

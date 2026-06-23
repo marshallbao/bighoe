@@ -32,13 +32,10 @@ const els = {
 
 let draggedId = null;
 let saveTimer = null;
+let classStudentsCache = [];
 
 function activeClass() {
   return BighoeData.getActiveClass();
-}
-
-function seatStorageKey() {
-  return `${SEAT_STORAGE_PREFIX}-${activeClass().id}`;
 }
 
 function normalizeSeatName(name) {
@@ -60,7 +57,7 @@ function ensureSeatSize() {
 }
 
 function getStudents() {
-  return BighoeData.getStudents(activeClass().id, { includeInactive: true });
+  return classStudentsCache;
 }
 
 function getAssignedIds() {
@@ -82,52 +79,64 @@ function pruneMissingStudents() {
   state.seats = state.seats.map((studentId) => (knownIds.has(studentId) ? studentId : null));
 }
 
-function saveState() {
-  localStorage.setItem(seatStorageKey(), JSON.stringify(state));
-  els.saveState.textContent = "已自动保存";
+async function saveState() {
+  const activeCls = activeClass();
+  if (!activeCls) return;
+
+  els.saveState.textContent = "保存中...";
+  try {
+    const res = await fetch("/api/seating/update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        classId: activeCls.id,
+        rows: state.rows,
+        cols: state.cols,
+        seats: state.seats
+      })
+    });
+    if (res.ok) {
+      els.saveState.textContent = "已自动保存";
+    } else {
+      els.saveState.textContent = "保存失败";
+    }
+  } catch (err) {
+    console.error("Failed to save seating:", err);
+    els.saveState.textContent = "保存失败";
+  }
+
   window.clearTimeout(saveTimer);
   saveTimer = window.setTimeout(() => {
     els.saveState.textContent = "已自动保存";
   }, 900);
 }
 
-function markChanged() {
-  els.saveState.textContent = "保存中...";
+async function markChanged() {
   pruneMissingStudents();
-  render();
-  saveState();
+  await render();
+  await saveState();
 }
 
-function loadState() {
+async function loadState() {
   state.rows = 4;
   state.cols = 6;
   state.seats = [];
 
-  const migrated = BighoeData.migrateLegacySeatPlanner();
-  const stored = localStorage.getItem(seatStorageKey());
-
-  if (!stored && migrated && migrated.classId === activeClass().id) {
-    state.rows = migrated.rows;
-    state.cols = migrated.cols;
-    state.seats = migrated.seats;
-    ensureSeatSize();
-    saveState();
-    return;
-  }
-
-  if (!stored) {
+  const activeCls = activeClass();
+  if (!activeCls) {
     ensureSeatSize();
     return;
   }
 
   try {
-    const parsed = JSON.parse(stored);
-    state.rows = Number(parsed.rows) || state.rows;
-    state.cols = Number(parsed.cols) || state.cols;
-    state.seats = Array.isArray(parsed.seats) ? parsed.seats : [];
+    const data = await fetch(`/api/seating?classId=${activeCls.id}`).then((r) => r.json());
+    state.rows = Number(data.rows) || state.rows;
+    state.cols = Number(data.cols) || state.cols;
+    state.seats = Array.isArray(data.seats) ? data.seats : [];
     ensureSeatSize();
     pruneMissingStudents();
-  } catch {
+  } catch (err) {
+    console.error("Failed to load seating:", err);
     ensureSeatSize();
   }
 }
@@ -152,7 +161,7 @@ function makeStudentCard(student) {
   return card;
 }
 
-function moveStudentToSeat(studentId, seatIndex) {
+async function moveStudentToSeat(studentId, seatIndex) {
   const fromIndex = state.seats.indexOf(studentId);
   const targetId = state.seats[seatIndex];
 
@@ -163,14 +172,14 @@ function moveStudentToSeat(studentId, seatIndex) {
   }
 
   state.seats[seatIndex] = studentId;
-  markChanged();
+  await markChanged();
 }
 
-function moveStudentToRoster(studentId) {
+async function moveStudentToRoster(studentId) {
   const fromIndex = state.seats.indexOf(studentId);
   if (fromIndex !== -1) {
     state.seats[fromIndex] = null;
-    markChanged();
+    await markChanged();
   }
 }
 
@@ -221,28 +230,66 @@ function renderRoster() {
   els.unassignedCount.textContent = `${unassigned.length} 人`;
 }
 
-function render() {
-  const students = getStudents();
+async function render() {
+  const sharedState = await BighoeData.readState();
+  const activeCls = activeClass();
+
+  if (activeCls) {
+    classStudentsCache = await BighoeData.getStudents(activeCls.id, { includeInactive: true });
+  } else {
+    classStudentsCache = [];
+  }
+
   renderClassSelect();
-  els.currentClassName.textContent = activeClass().name;
+  els.currentClassName.textContent = activeCls ? activeCls.name : "暂无班级";
   els.rowsInput.value = state.rows;
   els.colsInput.value = state.cols;
-  els.studentCount.textContent = `${students.length} 人`;
+  els.studentCount.textContent = `${classStudentsCache.length} 人`;
   els.seatCount.textContent = `${state.rows * state.cols} 座`;
   renderBoard();
   renderRoster();
 }
 
 function renderClassSelect() {
-  const sharedState = BighoeData.readState();
+  const sharedState = BighoeData.getActiveClass() ? BighoeData.readState() : null;
+  // BighoeData.readState() is async, but we can read from cachedState in shared.js synchronously using getActiveClass()
+  const activeCls = BighoeData.getActiveClass();
   els.classSelect.innerHTML = "";
-  sharedState.classes.forEach((classItem) => {
+  
+  // Since sharedState is loaded asynchronously in render(), we can populate options using standard browser state
+  // Or fetch classes again. But renderClassSelect is called inside render(), where we already have state!
+  // Let's modify renderClassSelect to accept the classes state:
+}
+
+function renderClassSelectWithOptions(classes, activeClassId) {
+  els.classSelect.innerHTML = "";
+  classes.forEach((classItem) => {
     const option = document.createElement("option");
     option.value = classItem.id;
     option.textContent = classItem.name;
-    option.selected = classItem.id === sharedState.activeClassId;
+    option.selected = classItem.id === activeClassId;
     els.classSelect.appendChild(option);
   });
+}
+
+async function render() {
+  const sharedState = await BighoeData.readState();
+  const activeCls = activeClass();
+
+  if (activeCls) {
+    classStudentsCache = await BighoeData.getStudents(activeCls.id, { includeInactive: true });
+  } else {
+    classStudentsCache = [];
+  }
+
+  renderClassSelectWithOptions(sharedState.classes, sharedState.activeClassId);
+  els.currentClassName.textContent = activeCls ? activeCls.name : "暂无班级";
+  els.rowsInput.value = state.rows;
+  els.colsInput.value = state.cols;
+  els.studentCount.textContent = `${classStudentsCache.length} 人`;
+  els.seatCount.textContent = `${state.rows * state.cols} 座`;
+  renderBoard();
+  renderRoster();
 }
 
 function splitSeatRow(rowText) {
@@ -275,7 +322,7 @@ function parseSeatText(text) {
     .filter((row) => row.length > 0);
 }
 
-function importSeats(text) {
+async function importSeats(text) {
   const rows = parseSeatText(text);
   if (!rows.length) {
     alert("没有识别到可导入的座次内容。");
@@ -307,18 +354,18 @@ function importSeats(text) {
   state.cols = nextCols;
   state.seats = nextSeats;
   els.seatInput.value = "";
-  markChanged();
+  await markChanged();
 }
 
 function hasSeatArrangement() {
   return state.seats.some(Boolean);
 }
 
-function resizeSeats(rows, cols) {
+async function resizeSeats(rows, cols) {
   state.rows = Math.min(12, Math.max(1, Number(rows) || 1));
   state.cols = Math.min(12, Math.max(1, Number(cols) || 1));
   ensureSeatSize();
-  markChanged();
+  await markChanged();
 }
 
 function exportSeats() {
@@ -340,32 +387,37 @@ function exportSeats() {
   URL.revokeObjectURL(link.href);
 }
 
-els.classSelect.addEventListener("change", () => {
+els.classSelect.addEventListener("change", async () => {
   BighoeData.setActiveClass(els.classSelect.value);
-  loadState();
-  render();
+  await loadState();
+  await render();
 });
-els.importSeatsBtn.addEventListener("click", () => {
+
+els.importSeatsBtn.addEventListener("click", async () => {
   if (!els.seatInput.value.trim()) return;
   if (hasSeatArrangement() && !confirm("导入座次会覆盖当前座位安排，确定继续吗？")) return;
-  importSeats(els.seatInput.value);
+  await importSeats(els.seatInput.value);
 });
+
 els.applySizeBtn.addEventListener("click", () => resizeSeats(els.rowsInput.value, els.colsInput.value));
 els.addRowBtn.addEventListener("click", () => resizeSeats(state.rows + 1, state.cols));
 els.removeRowBtn.addEventListener("click", () => resizeSeats(state.rows - 1, state.cols));
 els.addColBtn.addEventListener("click", () => resizeSeats(state.rows, state.cols + 1));
 els.removeColBtn.addEventListener("click", () => resizeSeats(state.rows, state.cols - 1));
-els.clearSeatsBtn.addEventListener("click", () => {
+
+els.clearSeatsBtn.addEventListener("click", async () => {
   state.seats = Array(state.rows * state.cols).fill(null);
-  markChanged();
+  await markChanged();
 });
-els.resetBtn.addEventListener("click", () => {
+
+els.resetBtn.addEventListener("click", async () => {
   if (!confirm("确定要重置当前班级的座位安排吗？公共学生名单会保留。")) return;
   state.seats = Array(state.rows * state.cols).fill(null);
-  localStorage.removeItem(seatStorageKey());
-  markChanged();
+  await markChanged();
 });
+
 els.exportBtn.addEventListener("click", exportSeats);
+
 els.seatFileInput.addEventListener("change", async () => {
   const [file] = els.seatFileInput.files;
   if (!file) return;
@@ -373,10 +425,15 @@ els.seatFileInput.addEventListener("change", async () => {
     els.seatFileInput.value = "";
     return;
   }
-  importSeats(await file.text());
+  await importSeats(await file.text());
   els.seatFileInput.value = "";
 });
+
 addDropHandlers(els.roster, moveStudentToRoster);
 
-loadState();
-render();
+async function init() {
+  await BighoeData.readState();
+  await loadState();
+  await render();
+}
+init();

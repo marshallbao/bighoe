@@ -9,4 +9,4 @@ ENV PORT=5173
 
 EXPOSE 5173
 
-CMD ["node", "server.js"]
+CMD ["node", "--experimental-sqlite", "server.js"]
