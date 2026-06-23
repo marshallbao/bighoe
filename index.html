@@ -5,6 +5,34 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>大锄头 - 园丁工具台</title>
     <link rel="stylesheet" href="styles.css" />
+    <script>
+      async function checkAuth() {
+        const token = sessionStorage.getItem('bighoe_token');
+        if (!token) {
+          window.location.href = 'login.html';
+          return;
+        }
+        
+        try {
+          const response = await fetch('/api/auth/verify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token })
+          });
+          
+          if (!response.ok) {
+            sessionStorage.removeItem('bighoe_token');
+            sessionStorage.removeItem('bighoe_csrf_token');
+            window.location.href = 'login.html';
+          }
+        } catch (err) {
+          sessionStorage.removeItem('bighoe_token');
+          sessionStorage.removeItem('bighoe_csrf_token');
+          window.location.href = 'login.html';
+        }
+      }
+      checkAuth();
+    </script>
   </head>
   <body>
     <main class="home-shell">
@@ -15,10 +43,13 @@
           <h1>大锄头</h1>
           <p>给老师准备的班级小工具台</p>
         </div>
-        <label class="class-switcher">
-          当前班级
-          <select id="classSelect"></select>
-        </label>
+        <div class="header-right">
+          <label class="class-switcher">
+            当前班级
+            <select id="classSelect"></select>
+          </label>
+          <button id="logoutBtn" class="logout-btn">登出</button>
+        </div>
       </header>
 
       <section class="home-grid" aria-label="工具首页">

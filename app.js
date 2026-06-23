@@ -19,6 +19,8 @@ const els = {
   seatCount: document.querySelector("#seatCount"),
   saveState: document.querySelector("#saveState"),
   currentClassName: document.querySelector("#currentClassName"),
+  currentPlanName: document.querySelector("#currentPlanName"),
+  planList: document.querySelector("#planList"),
   importSeatsBtn: document.querySelector("#importSeatsBtn"),
   applySizeBtn: document.querySelector("#applySizeBtn"),
   addRowBtn: document.querySelector("#addRowBtn"),
@@ -27,12 +29,16 @@ const els = {
   removeColBtn: document.querySelector("#removeColBtn"),
   clearSeatsBtn: document.querySelector("#clearSeatsBtn"),
   resetBtn: document.querySelector("#resetBtn"),
-  exportBtn: document.querySelector("#exportBtn")
+  exportBtn: document.querySelector("#exportBtn"),
+  newPlanBtn: document.querySelector("#newPlanBtn")
 };
 
 let draggedId = null;
 let saveTimer = null;
 let classStudentsCache = [];
+let currentPlanId = null;
+let currentPlanName = "";
+let isEditing = false;
 
 function activeClass() {
   return BighoeData.getActiveClass();
@@ -79,27 +85,60 @@ function pruneMissingStudents() {
   state.seats = state.seats.map((studentId) => (knownIds.has(studentId) ? studentId : null));
 }
 
+function authenticatedFetch(url, options = {}) {
+  const token = sessionStorage.getItem('bighoe_token');
+  const csrfToken = sessionStorage.getItem('bighoe_csrf_token');
+  const headers = {
+    "Content-Type": "application/json",
+    ...(options.headers || {})
+  };
+  
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  if (csrfToken && options.method && options.method !== "GET") {
+    headers["X-CSRF-Token"] = csrfToken;
+  }
+
+  return fetch(url, { ...options, headers });
+}
+
 async function saveState() {
   const activeCls = activeClass();
   if (!activeCls) return;
 
   els.saveState.textContent = "保存中...";
   try {
-    const res = await fetch("/api/seating/update", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        classId: activeCls.id,
-        rows: state.rows,
-        cols: state.cols,
-        seats: state.seats
-      })
-    });
-    if (res.ok) {
-      els.saveState.textContent = "已自动保存";
+    if (currentPlanId) {
+      const res = await authenticatedFetch("/api/seating/plan/update", {
+        method: "POST",
+        body: JSON.stringify({
+          id: currentPlanId,
+          name: currentPlanName || "未命名计划",
+          rows: state.rows,
+          cols: state.cols,
+          seats: state.seats
+        })
+      });
+      if (res.status === 401 || res.status === 403) {
+        sessionStorage.removeItem('bighoe_token');
+        sessionStorage.removeItem('bighoe_csrf_token');
+        window.location.href = 'login.html';
+        return;
+      }
     } else {
-      els.saveState.textContent = "保存失败";
+      const res = await authenticatedFetch("/api/seating/update", {
+        method: "POST",
+        body: JSON.stringify({
+          classId: activeCls.id,
+          rows: state.rows,
+          cols: state.cols,
+          seats: state.seats
+        })
+      });
     }
+    els.saveState.textContent = "已自动保存";
   } catch (err) {
     console.error("Failed to save seating:", err);
     els.saveState.textContent = "保存失败";
@@ -121,6 +160,8 @@ async function loadState() {
   state.rows = 4;
   state.cols = 6;
   state.seats = [];
+  currentPlanId = null;
+  currentPlanName = "";
 
   const activeCls = activeClass();
   if (!activeCls) {
@@ -129,10 +170,25 @@ async function loadState() {
   }
 
   try {
-    const data = await fetch(`/api/seating?classId=${activeCls.id}`).then((r) => r.json());
-    state.rows = Number(data.rows) || state.rows;
-    state.cols = Number(data.cols) || state.cols;
-    state.seats = Array.isArray(data.seats) ? data.seats : [];
+    const plans = await authenticatedFetch(`/api/seating/plans?classId=${activeCls.id}`).then((r) => r.json());
+    if (plans.status === 401) {
+      sessionStorage.removeItem('bighoe_api_key');
+      window.location.href = 'login.html';
+      return;
+    }
+    if (Array.isArray(plans) && plans.length > 0) {
+      const activePlan = plans.find((p) => p.isActive) || plans[0];
+      currentPlanId = activePlan.id;
+      currentPlanName = activePlan.name;
+      state.rows = activePlan.rows;
+      state.cols = activePlan.cols;
+      state.seats = activePlan.seats;
+    } else {
+      const data = await authenticatedFetch(`/api/seating?classId=${activeCls.id}`).then((r) => r.json());
+      state.rows = Number(data.rows) || state.rows;
+      state.cols = Number(data.cols) || state.cols;
+      state.seats = Array.isArray(data.seats) ? data.seats : [];
+    }
     ensureSeatSize();
     pruneMissingStudents();
   } catch (err) {
@@ -141,13 +197,153 @@ async function loadState() {
   }
 }
 
+async function loadPlan(planId) {
+  const activeCls = activeClass();
+  if (!activeCls || !planId) return;
+
+  try {
+    const plan = await authenticatedFetch(`/api/seating/plan?id=${planId}`).then((r) => r.json());
+    currentPlanId = plan.id;
+    currentPlanName = plan.name;
+    state.rows = plan.rows;
+    state.cols = plan.cols;
+    state.seats = plan.seats;
+    ensureSeatSize();
+    pruneMissingStudents();
+    isEditing = false;
+    await authenticatedFetch("/api/seating/plan/activate", {
+      method: "POST",
+      body: JSON.stringify({ id: planId, classId: activeCls.id })
+    });
+    await render();
+  } catch (err) {
+    console.error("Failed to load plan:", err);
+  }
+}
+
+function startEditing() {
+  isEditing = true;
+  els.saveState.textContent = "编辑模式";
+  render();
+}
+
+function stopEditing() {
+  isEditing = false;
+  els.saveState.textContent = "已自动保存";
+  render();
+}
+
+async function renamePlan() {
+  const newName = prompt("请输入新的计划名称：", currentPlanName);
+  if (!newName || newName.trim() === "") return;
+  
+  try {
+    await authenticatedFetch("/api/seating/plan/update", {
+      method: "POST",
+      body: JSON.stringify({
+        id: currentPlanId,
+        name: newName.trim(),
+        rows: state.rows,
+        cols: state.cols,
+        seats: state.seats
+      })
+    });
+    currentPlanName = newName.trim();
+    await render();
+  } catch (err) {
+    console.error("Failed to rename plan:", err);
+  }
+}
+
+async function createNewPlan() {
+  const activeCls = activeClass();
+  if (!activeCls) return;
+
+  const name = prompt("请输入座位计划名称：", `座次计划 ${new Date().toLocaleDateString()}`);
+  if (!name) return;
+
+  const planId = BighoeData.createId("seat-plan");
+  try {
+    await authenticatedFetch("/api/seating/plan/create", {
+      method: "POST",
+      body: JSON.stringify({
+        id: planId,
+        classId: activeCls.id,
+        name,
+        rows: state.rows,
+        cols: state.cols,
+        seats: state.seats
+      })
+    });
+    await authenticatedFetch("/api/seating/plan/activate", {
+      method: "POST",
+      body: JSON.stringify({ id: planId, classId: activeCls.id })
+    });
+    currentPlanId = planId;
+    currentPlanName = name;
+    await render();
+  } catch (err) {
+    console.error("Failed to create plan:", err);
+  }
+}
+
+async function copyPlan(sourceId) {
+  const activeCls = activeClass();
+  if (!activeCls || !sourceId) return;
+
+  const name = prompt("请输入新座位计划名称：", `${currentPlanName} (副本)`);
+  if (!name) return;
+
+  const newId = BighoeData.createId("seat-plan");
+  try {
+    await authenticatedFetch("/api/seating/plan/copy", {
+      method: "POST",
+      body: JSON.stringify({ id: sourceId, newId, newName: name })
+    });
+    await authenticatedFetch("/api/seating/plan/activate", {
+      method: "POST",
+      body: JSON.stringify({ id: newId, classId: activeCls.id })
+    });
+    currentPlanId = newId;
+    currentPlanName = name;
+    await render();
+  } catch (err) {
+    console.error("Failed to copy plan:", err);
+  }
+}
+
+async function deletePlan(planId) {
+  if (!confirm("确定要删除这个座位计划吗？")) return;
+
+  try {
+    const res = await authenticatedFetch("/api/seating/plan/delete", {
+      method: "POST",
+      body: JSON.stringify({ id: planId })
+    });
+    if (res.ok) {
+      if (currentPlanId === planId) {
+        currentPlanId = null;
+        currentPlanName = "";
+      }
+      await loadState();
+      await render();
+    }
+  } catch (err) {
+    console.error("Failed to delete plan:", err);
+  }
+}
+
 function makeStudentCard(student) {
   const card = document.createElement("div");
-  card.className = "student-card";
-  card.draggable = true;
+  card.className = `student-card${isEditing ? "" : " disabled"}`;
+  card.draggable = isEditing;
   card.textContent = student.name;
   card.dataset.id = student.id;
   card.addEventListener("dragstart", (event) => {
+    if (!isEditing) {
+      event.preventDefault();
+      return;
+    }
     draggedId = student.id;
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("text/plain", student.id);
@@ -162,6 +358,10 @@ function makeStudentCard(student) {
 }
 
 async function moveStudentToSeat(studentId, seatIndex) {
+  if (!isEditing) {
+    alert("请先点击「编辑」按钮进入编辑模式后再进行排位操作");
+    return;
+  }
   const fromIndex = state.seats.indexOf(studentId);
   const targetId = state.seats[seatIndex];
 
@@ -176,6 +376,10 @@ async function moveStudentToSeat(studentId, seatIndex) {
 }
 
 async function moveStudentToRoster(studentId) {
+  if (!isEditing) {
+    alert("请先点击「编辑」按钮进入编辑模式后再进行排位操作");
+    return;
+  }
   const fromIndex = state.seats.indexOf(studentId);
   if (fromIndex !== -1) {
     state.seats[fromIndex] = null;
@@ -230,46 +434,70 @@ function renderRoster() {
   els.unassignedCount.textContent = `${unassigned.length} 人`;
 }
 
-async function render() {
-  const sharedState = await BighoeData.readState();
+async function renderPlanList() {
   const activeCls = activeClass();
-
-  if (activeCls) {
-    classStudentsCache = await BighoeData.getStudents(activeCls.id, { includeInactive: true });
-  } else {
-    classStudentsCache = [];
+  if (!activeCls) {
+    els.planList.innerHTML = "<p class='empty-copy'>暂无座位计划</p>";
+    return;
   }
 
-  renderClassSelect();
-  els.currentClassName.textContent = activeCls ? activeCls.name : "暂无班级";
-  els.rowsInput.value = state.rows;
-  els.colsInput.value = state.cols;
-  els.studentCount.textContent = `${classStudentsCache.length} 人`;
-  els.seatCount.textContent = `${state.rows * state.cols} 座`;
-  renderBoard();
-  renderRoster();
-}
+  try {
+    const plans = await authenticatedFetch(`/api/seating/plans?classId=${activeCls.id}`).then((r) => r.json());
+    if (!Array.isArray(plans) || plans.length === 0) {
+      els.planList.innerHTML = "<p class='empty-copy'>暂无座位计划</p>";
+      return;
+    }
 
-function renderClassSelect() {
-  const sharedState = BighoeData.getActiveClass() ? BighoeData.readState() : null;
-  // BighoeData.readState() is async, but we can read from cachedState in shared.js synchronously using getActiveClass()
-  const activeCls = BighoeData.getActiveClass();
-  els.classSelect.innerHTML = "";
-  
-  // Since sharedState is loaded asynchronously in render(), we can populate options using standard browser state
-  // Or fetch classes again. But renderClassSelect is called inside render(), where we already have state!
-  // Let's modify renderClassSelect to accept the classes state:
-}
-
-function renderClassSelectWithOptions(classes, activeClassId) {
-  els.classSelect.innerHTML = "";
-  classes.forEach((classItem) => {
-    const option = document.createElement("option");
-    option.value = classItem.id;
-    option.textContent = classItem.name;
-    option.selected = classItem.id === activeClassId;
-    els.classSelect.appendChild(option);
-  });
+    els.planList.innerHTML = "";
+    plans.forEach((plan) => {
+      const isCurrentPlan = plan.id === currentPlanId;
+      const item = document.createElement("div");
+      item.className = `list-item ${isCurrentPlan ? "active" : ""}`;
+      item.dataset.id = plan.id;
+      item.innerHTML = `
+        <strong>${plan.name}</strong>
+        <div style="display: flex; gap: 4px; justify-content: flex-end;">
+          <button class="rename-plan-btn" type="button" style="font-size: 11px; padding: 2px 6px;">重命名</button>
+          <button class="copy-plan-btn" type="button" style="font-size: 11px; padding: 2px 6px;">复制</button>
+          ${isCurrentPlan ? `<button class="edit-plan-btn ${isEditing ? "danger" : ""}" type="button" style="font-size: 11px; padding: 2px 6px;">${isEditing ? "完成" : "编辑"}</button>` : ""}
+          ${!plan.isActive ? `<button class="delete-plan-btn" type="button" style="font-size: 11px; padding: 2px 6px; color: #b64242;">删除</button>` : ""}
+        </div>
+      `;
+      item.addEventListener("click", () => {
+        if (plan.id !== currentPlanId) {
+          loadPlan(plan.id);
+        }
+      });
+      item.querySelector(".rename-plan-btn").addEventListener("click", (e) => {
+        e.stopPropagation();
+        renamePlan();
+      });
+      item.querySelector(".copy-plan-btn").addEventListener("click", (e) => {
+        e.stopPropagation();
+        copyPlan(plan.id);
+      });
+      if (item.querySelector(".edit-plan-btn")) {
+        item.querySelector(".edit-plan-btn").addEventListener("click", (e) => {
+          e.stopPropagation();
+          if (isEditing) {
+            stopEditing();
+          } else {
+            startEditing();
+          }
+        });
+      }
+      if (item.querySelector(".delete-plan-btn")) {
+        item.querySelector(".delete-plan-btn").addEventListener("click", (e) => {
+          e.stopPropagation();
+          deletePlan(plan.id);
+        });
+      }
+      els.planList.appendChild(item);
+    });
+  } catch (err) {
+    console.error("Failed to render plan list:", err);
+    els.planList.innerHTML = "<p class='empty-copy'>加载失败</p>";
+  }
 }
 
 async function render() {
@@ -284,12 +512,28 @@ async function render() {
 
   renderClassSelectWithOptions(sharedState.classes, sharedState.activeClassId);
   els.currentClassName.textContent = activeCls ? activeCls.name : "暂无班级";
+  
+  const planStatus = currentPlanId ? `当前计划：${currentPlanName}` : "未选择计划（临时编辑）";
+  els.currentPlanName.textContent = isEditing ? `${planStatus} · 编辑中` : planStatus;
+  
   els.rowsInput.value = state.rows;
   els.colsInput.value = state.cols;
   els.studentCount.textContent = `${classStudentsCache.length} 人`;
   els.seatCount.textContent = `${state.rows * state.cols} 座`;
   renderBoard();
   renderRoster();
+  await renderPlanList();
+}
+
+function renderClassSelectWithOptions(classes, activeClassId) {
+  els.classSelect.innerHTML = "";
+  classes.forEach((classItem) => {
+    const option = document.createElement("option");
+    option.value = classItem.id;
+    option.textContent = classItem.name;
+    option.selected = classItem.id === activeClassId;
+    els.classSelect.appendChild(option);
+  });
 }
 
 function splitSeatRow(rowText) {
@@ -323,6 +567,10 @@ function parseSeatText(text) {
 }
 
 async function importSeats(text) {
+  if (!isEditing) {
+    alert("请先点击「编辑」按钮进入编辑模式后再进行导入操作");
+    return;
+  }
   const rows = parseSeatText(text);
   if (!rows.length) {
     alert("没有识别到可导入的座次内容。");
@@ -362,6 +610,10 @@ function hasSeatArrangement() {
 }
 
 async function resizeSeats(rows, cols) {
+  if (!isEditing) {
+    alert("请先点击「编辑」按钮进入编辑模式后再调整座位尺寸");
+    return;
+  }
   state.rows = Math.min(12, Math.max(1, Number(rows) || 1));
   state.cols = Math.min(12, Math.max(1, Number(cols) || 1));
   ensureSeatSize();
@@ -379,10 +631,11 @@ function exportSeats() {
     lines.push(`第 ${row + 1} 行：${names.join("，")}`);
   }
 
+  const planName = currentPlanName || "座次表";
   const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
   const link = document.createElement("a");
   link.href = URL.createObjectURL(blob);
-  link.download = `${activeClass().name}-学生座次表.txt`;
+  link.download = `${activeClass().name}-${planName}.txt`;
   link.click();
   URL.revokeObjectURL(link.href);
 }
@@ -406,11 +659,19 @@ els.addColBtn.addEventListener("click", () => resizeSeats(state.rows, state.cols
 els.removeColBtn.addEventListener("click", () => resizeSeats(state.rows, state.cols - 1));
 
 els.clearSeatsBtn.addEventListener("click", async () => {
+  if (!isEditing) {
+    alert("请先点击「编辑」按钮进入编辑模式后再进行清空操作");
+    return;
+  }
   state.seats = Array(state.rows * state.cols).fill(null);
   await markChanged();
 });
 
 els.resetBtn.addEventListener("click", async () => {
+  if (!isEditing) {
+    alert("请先点击「编辑」按钮进入编辑模式后再进行重置操作");
+    return;
+  }
   if (!confirm("确定要重置当前班级的座位安排吗？公共学生名单会保留。")) return;
   state.seats = Array(state.rows * state.cols).fill(null);
   await markChanged();
@@ -428,6 +689,8 @@ els.seatFileInput.addEventListener("change", async () => {
   await importSeats(await file.text());
   els.seatFileInput.value = "";
 });
+
+els.newPlanBtn.addEventListener("click", createNewPlan);
 
 addDropHandlers(els.roster, moveStudentToRoster);
 

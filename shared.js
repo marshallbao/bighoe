@@ -4,6 +4,8 @@
   const LEGACY_SEAT_PREFIX = "bighoe-seat-plan-v1";
   const LEGACY_HOMEWORK_KEY = "bighoe-homework-v1";
   const LEGACY_GRADES_KEY = "bighoe-grades-v1";
+  const TOKEN_STORAGE_KEY = "bighoe_token";
+  const CSRF_TOKEN_STORAGE_KEY = "bighoe_csrf_token";
 
   let cachedState = {
     classes: [],
@@ -11,6 +13,27 @@
   };
 
   let cachedStudents = [];
+
+  function getToken() {
+    return sessionStorage.getItem(TOKEN_STORAGE_KEY);
+  }
+
+  function getCsrfToken() {
+    return sessionStorage.getItem(CSRF_TOKEN_STORAGE_KEY);
+  }
+
+  function setToken(token) {
+    sessionStorage.setItem(TOKEN_STORAGE_KEY, token);
+  }
+
+  function setCsrfToken(token) {
+    sessionStorage.setItem(CSRF_TOKEN_STORAGE_KEY, token);
+  }
+
+  function clearAuth() {
+    sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+    sessionStorage.removeItem(CSRF_TOKEN_STORAGE_KEY);
+  }
 
   function createId(prefix) {
     return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -21,6 +44,42 @@
       .split(/[\n,，、;\s]+/)
       .map((name) => name.trim())
       .filter(Boolean);
+  }
+
+  async function authenticatedFetch(url, options = {}) {
+    const token = getToken();
+    const csrfToken = getCsrfToken();
+    const headers = {
+      "Content-Type": "application/json",
+      ...(options.headers || {})
+    };
+
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+
+    if (csrfToken && options.method && options.method !== "GET") {
+      headers["X-CSRF-Token"] = csrfToken;
+    }
+
+    const response = await fetch(url, {
+      ...options,
+      headers
+    });
+
+    if (response.status === 401) {
+      clearAuth();
+      window.location.href = 'login.html';
+      throw new Error('Unauthorized');
+    }
+
+    if (response.status === 403) {
+      clearAuth();
+      window.location.href = 'login.html';
+      throw new Error('CSRF error');
+    }
+
+    return response;
   }
 
   async function checkAndMigrate() {
@@ -55,9 +114,8 @@
         exams: grades.exams || []
       };
 
-      const res = await fetch("/api/migrate", {
+      const res = await authenticatedFetch("/api/migrate", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       });
 
@@ -81,10 +139,9 @@
   }
 
   async function readState() {
-    // Run migration check first
     await checkAndMigrate();
 
-    const classes = await fetch("/api/classes").then((r) => r.json());
+    const classes = await authenticatedFetch("/api/classes").then((r) => r.json());
     let activeClassId = localStorage.getItem(ACTIVE_CLASS_KEY);
     if (!activeClassId || !classes.some((item) => item.id === activeClassId)) {
       activeClassId = classes[0] ? classes[0].id : null;
@@ -110,12 +167,11 @@
       return [];
     }
 
-    const students = await fetch(`/api/students?classId=${classId}`).then((r) => r.json());
+    const students = await authenticatedFetch(`/api/students?classId=${classId}`).then((r) => r.json());
     const sorted = students
       .filter((student) => options.includeInactive || student.status !== "transferred")
       .sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
 
-    // Cache students of the loaded class for synchronous operations like lookups
     cachedStudents = sorted;
     return sorted;
   }
@@ -144,9 +200,8 @@
 
     if (!toAdd.length) return { added: 0 };
 
-    const res = await fetch("/api/students/import", {
+    const res = await authenticatedFetch("/api/students/import", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ classId, students: toAdd })
     });
     if (!res.ok) throw new Error("Failed to import students");
@@ -174,9 +229,8 @@
       note: String(student?.note || "").trim()
     };
 
-    const res = await fetch("/api/students/create", {
+    const res = await authenticatedFetch("/api/students/create", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(newStudent)
     });
     if (!res.ok) throw new Error("Failed to create student");
@@ -188,9 +242,8 @@
     const name = String(patch.name || "").trim();
     if (!name) return null;
 
-    const res = await fetch("/api/students/update", {
+    const res = await authenticatedFetch("/api/students/update", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         id: studentId,
         name,
@@ -211,9 +264,8 @@
     if (!trimmed) return null;
 
     const id = createId("class");
-    const res = await fetch("/api/classes/create", {
+    const res = await authenticatedFetch("/api/classes/create", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, name: trimmed })
     });
     if (!res.ok) throw new Error("Failed to create class");
@@ -227,9 +279,8 @@
     const nextName = String(patch.name || "").trim();
     if (!nextName) return null;
 
-    const res = await fetch("/api/classes/update", {
+    const res = await authenticatedFetch("/api/classes/update", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         id: classId,
         name: nextName,
@@ -243,9 +294,8 @@
   }
 
   async function deleteClass(classId) {
-    const res = await fetch("/api/classes/delete", {
+    const res = await authenticatedFetch("/api/classes/delete", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: classId })
     });
     if (!res.ok) throw new Error("Failed to delete class");
@@ -259,9 +309,8 @@
   }
 
   async function deleteStudent(studentId) {
-    const res = await fetch("/api/students/delete", {
+    const res = await authenticatedFetch("/api/students/delete", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: studentId })
     });
     if (!res.ok) throw new Error("Failed to delete student");
@@ -296,6 +345,11 @@
     updateClass,
     setActiveClass,
     deleteClass,
-    deleteStudent
+    deleteStudent,
+    getToken,
+    getCsrfToken,
+    setToken,
+    setCsrfToken,
+    clearAuth
   };
 })();

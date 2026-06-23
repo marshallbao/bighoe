@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>作业统计分析 - 大锄头</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script>
+      if (!sessionStorage.getItem('bighoe_token')) {
+        window.location.href = 'login.html';
+      }
+    </script>
+  </head>
+  <body>
+    <main class="home-shell">
+      <header class="topbar">
+        <div class="brand-mark" aria-hidden="true">分</div>
+        <div class="brand-copy">
+          <a class="back-link" href="homework.html">返回作业记录</a>
+          <p class="eyebrow">Analysis</p>
+          <h1>作业统计分析</h1>
+          <p>分析班级作业提交情况，追踪学生学习状态</p>
+        </div>
+        <label class="class-switcher">
+          当前班级
+          <select id="classSelect"></select>
+        </label>
+      </header>
+
+      <section class="manager-grid">
+        <aside class="data-panel">
+          <div class="panel-block first">
+            <div class="section-heading compact">
+              <h2>分析周期</h2>
+            </div>
+            <div class="period-selector">
+              <button class="active" data-period="week" type="button">本周</button>
+              <button data-period="month" type="button">本月</button>
+              <button data-period="term" type="button">本学期</button>
+            </div>
+          </div>
+
+          <div class="panel-block">
+            <div class="section-heading compact">
+              <h2>统计概览</h2>
+            </div>
+            <div class="mini-summary">
+              <div><span>作业总数</span><strong id="totalHomework">0</strong></div>
+              <div><span>平均按时率</span><strong id="avgOnTimeRate">0%</strong></div>
+              <div><span>未交人次</span><strong id="totalMissing">0</strong></div>
+              <div><span>迟交人次</span><strong id="totalLate">0</strong></div>
+            </div>
+          </div>
+
+          <div class="panel-block">
+            <div class="section-heading compact">
+              <h2>科目分布</h2>
+            </div>
+            <div class="subject-stats" id="subjectStats"></div>
+          </div>
+        </aside>
+
+        <section class="tool-board">
+          <div class="panel-block first">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Details</p>
+                <h2>每日统计</h2>
+              </div>
+            </div>
+            <div class="analysis-table" id="dailyAnalysis"></div>
+          </div>
+
+          <div class="panel-block">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Trend</p>
+                <h2>提交趋势</h2>
+              </div>
+            </div>
+            <div class="chart-container" id="trendChart"></div>
+          </div>
+
+          <div class="panel-block">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Ranking</p>
+                <h2>学生提交排行</h2>
+              </div>
+            </div>
+            <div class="ranking-table" id="studentRanking"></div>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script src="shared.js"></script>
+    <script src="homework-analysis.js"></script>
+  </body>
+</html>

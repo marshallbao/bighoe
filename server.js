@@ -1,18 +1,78 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
-const { DatabaseSync } = require("node:sqlite");
+const crypto = require("crypto");
+const Database = require("better-sqlite3");
 
 const root = __dirname;
 const port = Number(process.env.PORT || process.argv[2]) || 5173;
-const host = process.env.HOST || "0.0.0.0"; // Allow external access, especially for WSL to host mapping
+const host = process.env.HOST || "0.0.0.0";
+
+const API_KEY = process.env.BIGHOE_API_KEY;
+const AUTH_ENABLED = !!API_KEY;
+const SESSION_EXPIRE_MS = 24 * 60 * 60 * 1000;
+
+const sessions = new Map();
+
+function validateApiKey(key) {
+  if (!key) return true;
+  const minLength = 16;
+  const hasUpper = /[A-Z]/.test(key);
+  const hasLower = /[a-z]/.test(key);
+  const hasNumber = /[0-9]/.test(key);
+  return key.length >= minLength && hasUpper && hasLower && hasNumber;
+}
+
+if (AUTH_ENABLED && !validateApiKey(API_KEY)) {
+  console.error("ERROR: BIGHOE_API_KEY must be at least 16 characters with uppercase, lowercase, and numbers");
+  process.exit(1);
+}
+
+function generateSessionToken() {
+  return crypto.randomBytes(32).toString("hex");
+}
+
+function createSession(apiKey) {
+  const token = generateSessionToken();
+  const csrfToken = crypto.randomBytes(16).toString("hex");
+  sessions.set(token, {
+    apiKey,
+    csrfToken,
+    createdAt: Date.now(),
+    expiresAt: Date.now() + SESSION_EXPIRE_MS
+  });
+  return { token, csrfToken };
+}
+
+function validateSession(token) {
+  const session = sessions.get(token);
+  if (!session) return null;
+  
+  if (session.expiresAt < Date.now()) {
+    sessions.delete(token);
+    return null;
+  }
+  
+  return session;
+}
+
+function cleanupExpiredSessions() {
+  const now = Date.now();
+  for (const [token, session] of sessions) {
+    if (session.expiresAt < now) {
+      sessions.delete(token);
+    }
+  }
+}
+
+setInterval(cleanupExpiredSessions, 60 * 60 * 1000);
 
 // Initialize SQLite database
 const dbPath = path.resolve(root, "bighoe.db");
-const db = new DatabaseSync(dbPath);
+const db = new Database(dbPath);
 
 // Enable foreign keys
-db.exec("PRAGMA foreign_keys = ON;");
+db.pragma("foreign_keys = ON");
 
 // Initialize tables
 db.exec(`
@@ -46,6 +106,22 @@ db.exec(`
     seats TEXT NOT NULL,
     FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS seating_plans (
+    id TEXT PRIMARY KEY,
+    class_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    rows INTEGER NOT NULL DEFAULT 4,
+    cols INTEGER NOT NULL DEFAULT 6,
+    seats TEXT NOT NULL,
+    is_active INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT,
+    FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_seating_plans_class_id ON seating_plans(class_id);
+  CREATE INDEX IF NOT EXISTS idx_seating_plans_is_active ON seating_plans(is_active);
 
   CREATE TABLE IF NOT EXISTS homework (
     id TEXT PRIMARY KEY,
@@ -132,13 +208,76 @@ function runInTransaction(callback) {
   }
 }
 
+function checkAuth(req) {
+  if (!AUTH_ENABLED) return { valid: true, session: null };
+  
+  const authHeader = req.headers["authorization"];
+  if (!authHeader) return { valid: false, session: null };
+  
+  const [type, token] = authHeader.split(" ");
+  if (type !== "Bearer") return { valid: false, session: null };
+  
+  const session = validateSession(token);
+  if (!session) return { valid: false, session: null };
+  
+  return { valid: session.apiKey === API_KEY, session };
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${host}:${port}`);
   const pathname = url.pathname;
 
   // API Routing
   if (pathname.startsWith("/api/")) {
+    if (pathname !== "/api/auth/login" && pathname !== "/api/auth/verify") {
+      const authResult = checkAuth(req);
+      if (!authResult.valid) {
+        return sendJSON(res, { error: "Unauthorized" }, 401);
+      }
+      
+      if (req.method !== "GET") {
+        const csrfToken = req.headers["x-csrf-token"];
+        if (!csrfToken || authResult.session.csrfToken !== csrfToken) {
+          return sendJSON(res, { error: "Invalid CSRF token" }, 403);
+        }
+      }
+    }
+    
     try {
+      if (pathname === "/api/auth/login" && req.method === "POST") {
+        const body = await readJSONBody(req);
+        const { key } = body;
+        
+        if (AUTH_ENABLED) {
+          if (key === API_KEY) {
+            const { token, csrfToken } = createSession(key);
+            return sendJSON(res, { success: true, authenticated: true, token, csrfToken });
+          } else {
+            return sendJSON(res, { success: false, authenticated: false, error: "Invalid API key" }, 401);
+          }
+        } else {
+          const { token, csrfToken } = createSession("");
+          return sendJSON(res, { success: true, authenticated: true, token, csrfToken, message: "Authentication is disabled" });
+        }
+      }
+      
+      if (pathname === "/api/auth/verify" && req.method === "POST") {
+        const body = await readJSONBody(req);
+        const { token } = body;
+        
+        if (!AUTH_ENABLED) {
+          const { token: newToken, csrfToken } = createSession("");
+          return sendJSON(res, { success: true, authenticated: true, token: newToken, csrfToken, message: "Authentication is disabled" });
+        }
+        
+        const session = validateSession(token);
+        if (session && session.apiKey === API_KEY) {
+          return sendJSON(res, { success: true, authenticated: true, csrfToken: session.csrfToken });
+        } else {
+          return sendJSON(res, { success: false, authenticated: false }, 401);
+        }
+      }
+      
       // 1. Classes API
       if (pathname === "/api/classes" && req.method === "GET") {
         const stmt = db.prepare("SELECT * FROM classes ORDER BY created_at ASC");
@@ -306,6 +445,122 @@ const server = http.createServer(async (req, res) => {
           "INSERT INTO seating (class_id, rows, cols, seats) VALUES (?, ?, ?, ?) ON CONFLICT(class_id) DO UPDATE SET rows = excluded.rows, cols = excluded.cols, seats = excluded.seats"
         );
         stmt.run(classId, rows, cols, seatsJSON);
+        return sendJSON(res, { success: true });
+      }
+
+      // 3.5 Seating Plans API
+      if (pathname === "/api/seating/plans" && req.method === "GET") {
+        const classId = url.searchParams.get("classId");
+        if (!classId) return sendJSON(res, { error: "classId is required" }, 400);
+
+        const stmt = db.prepare("SELECT * FROM seating_plans WHERE class_id = ? ORDER BY is_active DESC, created_at DESC");
+        const rows = stmt.all(classId);
+        const plans = rows.map((row) => ({
+          id: row.id,
+          classId: row.class_id,
+          name: row.name,
+          rows: row.rows,
+          cols: row.cols,
+          seats: JSON.parse(row.seats),
+          isActive: row.is_active === 1,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at
+        }));
+        return sendJSON(res, plans);
+      }
+
+      if (pathname === "/api/seating/plan" && req.method === "GET") {
+        const id = url.searchParams.get("id");
+        if (!id) return sendJSON(res, { error: "id is required" }, 400);
+
+        const stmt = db.prepare("SELECT * FROM seating_plans WHERE id = ?");
+        const row = stmt.get(id);
+        if (!row) return sendJSON(res, { error: "Plan not found" }, 404);
+
+        return sendJSON(res, {
+          id: row.id,
+          classId: row.class_id,
+          name: row.name,
+          rows: row.rows,
+          cols: row.cols,
+          seats: JSON.parse(row.seats),
+          isActive: row.is_active === 1,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at
+        });
+      }
+
+      if (pathname === "/api/seating/plan/create" && req.method === "POST") {
+        const body = await readJSONBody(req);
+        const { id, classId, name, rows, cols, seats } = body;
+        if (!id || !classId || !name) return sendJSON(res, { error: "id, classId, and name are required" }, 400);
+
+        const createdAt = new Date().toISOString();
+        const seatsJSON = JSON.stringify(seats || []);
+        const stmt = db.prepare(
+          "INSERT INTO seating_plans (id, class_id, name, rows, cols, seats, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?)"
+        );
+        stmt.run(id, classId, name, rows || 4, cols || 6, seatsJSON, createdAt);
+        return sendJSON(res, { id, classId, name, rows: rows || 4, cols: cols || 6, seats: seats || [], createdAt });
+      }
+
+      if (pathname === "/api/seating/plan/update" && req.method === "POST") {
+        const body = await readJSONBody(req);
+        const { id, name, rows, cols, seats } = body;
+        if (!id) return sendJSON(res, { error: "id is required" }, 400);
+
+        const updatedAt = new Date().toISOString();
+        const seatsJSON = JSON.stringify(seats);
+        const stmt = db.prepare(
+          "UPDATE seating_plans SET name = ?, rows = ?, cols = ?, seats = ?, updated_at = ? WHERE id = ?"
+        );
+        stmt.run(name, rows, cols, seatsJSON, updatedAt, id);
+        return sendJSON(res, { success: true, updatedAt });
+      }
+
+      if (pathname === "/api/seating/plan/delete" && req.method === "POST") {
+        const body = await readJSONBody(req);
+        const { id } = body;
+        if (!id) return sendJSON(res, { error: "id is required" }, 400);
+
+        const stmt = db.prepare("SELECT is_active FROM seating_plans WHERE id = ?");
+        const row = stmt.get(id);
+        if (row && row.is_active === 1) {
+          return sendJSON(res, { error: "Cannot delete active plan" }, 400);
+        }
+
+        const deleteStmt = db.prepare("DELETE FROM seating_plans WHERE id = ?");
+        deleteStmt.run(id);
+        return sendJSON(res, { success: true });
+      }
+
+      if (pathname === "/api/seating/plan/copy" && req.method === "POST") {
+        const body = await readJSONBody(req);
+        const { id, newId, newName } = body;
+        if (!id || !newId || !newName) return sendJSON(res, { error: "id, newId, and newName are required" }, 400);
+
+        const stmt = db.prepare("SELECT * FROM seating_plans WHERE id = ?");
+        const row = stmt.get(id);
+        if (!row) return sendJSON(res, { error: "Source plan not found" }, 404);
+
+        const createdAt = new Date().toISOString();
+        const copyStmt = db.prepare(
+          "INSERT INTO seating_plans (id, class_id, name, rows, cols, seats, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?)"
+        );
+        copyStmt.run(newId, row.class_id, newName, row.rows, row.cols, row.seats, createdAt);
+        return sendJSON(res, { id: newId, classId: row.class_id, name: newName, createdAt });
+      }
+
+      if (pathname === "/api/seating/plan/activate" && req.method === "POST") {
+        const body = await readJSONBody(req);
+        const { id, classId } = body;
+        if (!id || !classId) return sendJSON(res, { error: "id and classId are required" }, 400);
+
+        runInTransaction(() => {
+          db.prepare("UPDATE seating_plans SET is_active = 0 WHERE class_id = ?").run(classId);
+          db.prepare("UPDATE seating_plans SET is_active = 1 WHERE id = ?").run(id);
+        });
+
         return sendJSON(res, { success: true });
       }
 

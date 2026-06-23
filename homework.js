@@ -22,13 +22,10 @@ const homeworkEls = {
   submittedCount: document.querySelector("#submittedCount"),
   missingCount: document.querySelector("#missingCount"),
   onTimeRate: document.querySelector("#onTimeRate"),
-  recordTable: document.querySelector("#recordTable"),
-  analysis: document.querySelector("#homeworkAnalysis"),
-  periodButtons: document.querySelectorAll("[data-period]")
+  recordTable: document.querySelector("#recordTable")
 };
 
 let selectedHomeworkId = null;
-let analysisPeriod = "week";
 let classStudentsCache = [];
 let classTasksCache = [];
 
@@ -36,11 +33,37 @@ function todayText() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function authenticatedFetch(url, options = {}) {
+  const token = sessionStorage.getItem('bighoe_token');
+  const csrfToken = sessionStorage.getItem('bighoe_csrf_token');
+  const headers = {
+    "Content-Type": "application/json",
+    ...(options.headers || {})
+  };
+  
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  if (csrfToken && options.method && options.method !== "GET") {
+    headers["X-CSRF-Token"] = csrfToken;
+  }
+
+  return fetch(url, { ...options, headers });
+}
+
 async function readHomeworkState() {
   const activeCls = activeClass();
   if (!activeCls) return { tasks: [] };
   try {
-    const tasks = await fetch(`/api/homework?classId=${activeCls.id}`).then((r) => r.json());
+    const res = await authenticatedFetch(`/api/homework?classId=${activeCls.id}`);
+    if (res.status === 401 || res.status === 403) {
+      sessionStorage.removeItem('bighoe_token');
+      sessionStorage.removeItem('bighoe_csrf_token');
+      window.location.href = 'login.html';
+      return { tasks: [] };
+    }
+    const tasks = await res.json();
     return { tasks };
   } catch (err) {
     console.error("Failed to read homework state:", err);
@@ -184,45 +207,7 @@ function renderSummary(task, students) {
   homeworkEls.onTimeRate.textContent = summary.due ? `${Math.round((summary.onTime / summary.due) * 100)}%` : "0%";
 }
 
-function renderAnalysis(students) {
-  const tasks = classTasks().filter((task) => samePeriod(task.assignedDate, analysisPeriod));
-  homeworkEls.analysis.innerHTML = "";
 
-  if (!tasks.length || !students.length) {
-    const empty = document.createElement("p");
-    empty.className = "empty-copy";
-    empty.textContent = "当前周期暂无可统计数据。";
-    homeworkEls.analysis.appendChild(empty);
-    return;
-  }
-
-  const header = document.createElement("div");
-  header.className = "analysis-row analysis-head";
-  header.innerHTML = "<span>学生</span><span>应交</span><span>按时</span><span>未交</span><span>按时率</span><span>未交率</span>";
-  homeworkEls.analysis.appendChild(header);
-
-  students.forEach((student) => {
-    const stats = { due: 0, onTime: 0, missing: 0 };
-    tasks.forEach((task) => {
-      const status = task.records?.[student.id] || "missing";
-      if (status !== "not_required") stats.due += 1;
-      if (status === "submitted") stats.onTime += 1;
-      if (status === "missing") stats.missing += 1;
-    });
-    const row = document.createElement("div");
-    row.className = "analysis-row";
-    row.innerHTML = `
-      <strong></strong>
-      <span>${stats.due}</span>
-      <span>${stats.onTime}</span>
-      <span>${stats.missing}</span>
-      <span>${stats.due ? Math.round((stats.onTime / stats.due) * 100) : 0}%</span>
-      <span>${stats.due ? Math.round((stats.missing / stats.due) * 100) : 0}%</span>
-    `;
-    row.querySelector("strong").textContent = student.name;
-    homeworkEls.analysis.appendChild(row);
-  });
-}
 
 async function updateRecord(taskId, studentId, status) {
   const task = classTasksCache.find((item) => item.id === taskId);
@@ -232,11 +217,16 @@ async function updateRecord(taskId, studentId, status) {
   task.records[studentId] = status;
 
   try {
-    const res = await fetch("/api/homework/update", {
+    const res = await authenticatedFetch("/api/homework/update", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: taskId, records: task.records })
     });
+    if (res.status === 401 || res.status === 403) {
+      sessionStorage.removeItem('bighoe_token');
+      sessionStorage.removeItem('bighoe_csrf_token');
+      window.location.href = 'login.html';
+      return;
+    }
     if (!res.ok) throw new Error("Failed to update homework records");
     await render();
   } catch (err) {
@@ -272,11 +262,16 @@ async function createHomework() {
   };
 
   try {
-    const res = await fetch("/api/homework/create", {
+    const res = await authenticatedFetch("/api/homework/create", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(task)
     });
+    if (res.status === 401 || res.status === 403) {
+      sessionStorage.removeItem('bighoe_token');
+      sessionStorage.removeItem('bighoe_csrf_token');
+      window.location.href = 'login.html';
+      return;
+    }
     if (!res.ok) throw new Error("Failed to create homework");
 
     selectedHomeworkId = task.id;
@@ -299,11 +294,16 @@ async function markAllSubmitted() {
   });
 
   try {
-    const res = await fetch("/api/homework/update", {
+    const res = await authenticatedFetch("/api/homework/update", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: task.id, records })
     });
+    if (res.status === 401 || res.status === 403) {
+      sessionStorage.removeItem('bighoe_token');
+      sessionStorage.removeItem('bighoe_csrf_token');
+      window.location.href = 'login.html';
+      return;
+    }
     if (!res.ok) throw new Error("Failed to update homework records");
     await render();
   } catch (err) {
@@ -345,7 +345,6 @@ async function render() {
   homeworkEls.selectedTitle.textContent = task ? `${task.title}（${task.assignedDate}）` : "选择一项作业";
   renderSummary(task, classStudentsCache);
   renderRecordTable(task, classStudentsCache);
-  renderAnalysis(classStudentsCache);
 }
 
 homeworkEls.dateInput.value = todayText();
@@ -356,13 +355,6 @@ homeworkEls.classSelect.addEventListener("change", async () => {
   BighoeData.setActiveClass(homeworkEls.classSelect.value);
   selectedHomeworkId = null;
   await render();
-});
-homeworkEls.periodButtons.forEach((button) => {
-  button.addEventListener("click", async () => {
-    analysisPeriod = button.dataset.period;
-    homeworkEls.periodButtons.forEach((item) => item.classList.toggle("active", item === button));
-    await render();
-  });
 });
 
 render();

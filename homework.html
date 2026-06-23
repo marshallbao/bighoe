@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>作业提交记录 - 大锄头</title>
     <link rel="stylesheet" href="styles.css" />
+    <script>
+      if (!sessionStorage.getItem('bighoe_token')) {
+        window.location.href = 'login.html';
+      }
+    </script>
   </head>
   <body>
     <main class="home-shell">
@@ -60,6 +65,14 @@
             </div>
             <div class="compact-list" id="homeworkList"></div>
           </div>
+
+          <div class="panel-block">
+            <div class="section-heading compact">
+              <h2>统计分析</h2>
+              <a href="homework-analysis.html" class="link-button small">查看详情</a>
+            </div>
+            <p class="empty-copy">点击上方链接查看详细的作业统计分析报告。</p>
+          </div>
         </aside>
 
         <section class="tool-board">
@@ -83,18 +96,6 @@
 
           <div class="panel-block first">
             <div class="record-table" id="recordTable"></div>
-          </div>
-
-          <div class="panel-block">
-            <div class="section-heading compact">
-              <h2>统计分析</h2>
-              <div class="segmented-control">
-                <button class="active" data-period="week" type="button">本周</button>
-                <button data-period="month" type="button">本月</button>
-                <button data-period="term" type="button">本学期</button>
-              </div>
-            </div>
-            <div class="analysis-table" id="homeworkAnalysis"></div>
           </div>
         </section>
       </section>

@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>成绩记录分析 - 大锄头</title>
     <link rel="stylesheet" href="styles.css" />
+    <script>
+      if (!sessionStorage.getItem('bighoe_token')) {
+        window.location.href = 'login.html';
+      }
+    </script>
   </head>
   <body>
     <main class="home-shell">

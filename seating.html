@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>学生座次安排 - 大锄头</title>
     <link rel="stylesheet" href="styles.css" />
+    <script>
+      if (!sessionStorage.getItem('bighoe_token')) {
+        window.location.href = 'login.html';
+      }
+    </script>
   </head>
   <body>
     <main class="app-shell">
@@ -33,15 +38,20 @@
 
         <section class="panel">
           <div class="panel-title">
-            <h2>导入座次</h2>
-            <span>覆盖当前座位</span>
+            <h2>座位计划</h2>
+            <button class="primary" id="newPlanBtn" type="button" style="font-size: 12px; padding: 4px 10px;">新建计划</button>
           </div>
-          <textarea id="seatInput" placeholder="第 1 行：张三，李四，空&#10;第 2 行：王五，空，赵六"></textarea>
-          <div class="button-row">
-            <button class="primary" id="importSeatsBtn" type="button">导入座次</button>
-            <label class="file-button" for="seatFileInput">导入座次文件</label>
-            <input id="seatFileInput" type="file" accept=".txt,.csv,.json" />
+          <div class="compact-list" id="planList">
+            <p class="empty-copy">暂无座位计划</p>
           </div>
+        </section>
+
+        <section class="panel roster-panel">
+          <div class="panel-title">
+            <h2>未入座</h2>
+            <span id="unassignedCount">0 人</span>
+          </div>
+          <div class="roster" id="roster" aria-label="未入座学生名单"></div>
         </section>
 
         <section class="panel">
@@ -68,12 +78,17 @@
           </div>
         </section>
 
-        <section class="panel roster-panel">
+        <section class="panel">
           <div class="panel-title">
-            <h2>未入座</h2>
-            <span id="unassignedCount">0 人</span>
+            <h2>导入座次</h2>
+            <span>覆盖当前座位</span>
           </div>
-          <div class="roster" id="roster" aria-label="未入座学生名单"></div>
+          <textarea id="seatInput" placeholder="第 1 行：张三，李四，空&#10;第 2 行：王五，空，赵六"></textarea>
+          <div class="button-row">
+            <button class="primary" id="importSeatsBtn" type="button">导入座次</button>
+            <label class="file-button" for="seatFileInput">导入座次文件</label>
+            <input id="seatFileInput" type="file" accept=".txt,.csv,.json" />
+          </div>
         </section>
 
         <section class="panel actions">
@@ -88,6 +103,7 @@
           <div>
             <p class="eyebrow">Classroom</p>
             <h2>讲台</h2>
+            <span id="currentPlanName" style="color: #637083; font-size: 14px; margin-top: 4px; display: block;"></span>
           </div>
           <div class="legend">
             <span><i class="dot filled"></i> 已安排</span>

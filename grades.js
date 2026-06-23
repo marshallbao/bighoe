@@ -29,12 +29,42 @@ function todayText() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function authenticatedFetch(url, options = {}) {
+  const token = sessionStorage.getItem('bighoe_token');
+  const csrfToken = sessionStorage.getItem('bighoe_csrf_token');
+  const headers = {
+    "Content-Type": "application/json",
+    ...(options.headers || {})
+  };
+  
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  if (csrfToken && options.method && options.method !== "GET") {
+    headers["X-CSRF-Token"] = csrfToken;
+  }
+
+  return fetch(url, { ...options, headers });
+}
+
 async function readGradeState() {
   const activeCls = activeClass();
   if (!activeCls) return { subjects: [], exams: [] };
   try {
-    const subjects = await fetch(`/api/subjects?classId=${activeCls.id}`).then((r) => r.json());
-    const exams = await fetch(`/api/exams?classId=${activeCls.id}`).then((r) => r.json());
+    const subjectsRes = await authenticatedFetch(`/api/subjects?classId=${activeCls.id}`);
+    const examsRes = await authenticatedFetch(`/api/exams?classId=${activeCls.id}`);
+    
+    if (subjectsRes.status === 401 || subjectsRes.status === 403 || 
+        examsRes.status === 401 || examsRes.status === 403) {
+      sessionStorage.removeItem('bighoe_token');
+      sessionStorage.removeItem('bighoe_csrf_token');
+      window.location.href = 'login.html';
+      return { subjects: [], exams: [] };
+    }
+    
+    const subjects = await subjectsRes.json();
+    const exams = await examsRes.json();
     return { subjects, exams };
   } catch (err) {
     console.error("Failed to read grade state:", err);
@@ -87,15 +117,20 @@ async function addSubject() {
   }
 
   try {
-    const res = await fetch("/api/subjects/create", {
+    const res = await authenticatedFetch("/api/subjects/create", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         id: BighoeData.createId("subject"),
         classId: activeCls.id,
         name
       })
     });
+    if (res.status === 401 || res.status === 403) {
+      sessionStorage.removeItem('bighoe_token');
+      sessionStorage.removeItem('bighoe_csrf_token');
+      window.location.href = 'login.html';
+      return;
+    }
     if (!res.ok) throw new Error("Failed to create subject");
     gradeEls.subjectNameInput.value = "";
     await render();
@@ -106,11 +141,16 @@ async function addSubject() {
 
 async function toggleSubject(subjectId, active) {
   try {
-    const res = await fetch("/api/subjects/update", {
+    const res = await authenticatedFetch("/api/subjects/update", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: subjectId, active })
     });
+    if (res.status === 401 || res.status === 403) {
+      sessionStorage.removeItem('bighoe_token');
+      sessionStorage.removeItem('bighoe_csrf_token');
+      window.location.href = 'login.html';
+      return;
+    }
     if (!res.ok) throw new Error("Failed to update subject status");
     await render();
   } catch (err) {
@@ -144,11 +184,16 @@ async function createExam() {
   };
 
   try {
-    const res = await fetch("/api/exams/create", {
+    const res = await authenticatedFetch("/api/exams/create", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(exam)
     });
+    if (res.status === 401 || res.status === 403) {
+      sessionStorage.removeItem('bighoe_token');
+      sessionStorage.removeItem('bighoe_csrf_token');
+      window.location.href = 'login.html';
+      return;
+    }
     if (!res.ok) throw new Error("Failed to create exam");
 
     selectedExamId = exam.id;
@@ -174,11 +219,16 @@ async function updateScore(examId, studentId, subjectId, value) {
   }
 
   try {
-    const res = await fetch("/api/exams/update", {
+    const res = await authenticatedFetch("/api/exams/update", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: examId, scores: exam.scores })
     });
+    if (res.status === 401 || res.status === 403) {
+      sessionStorage.removeItem('bighoe_token');
+      sessionStorage.removeItem('bighoe_csrf_token');
+      window.location.href = 'login.html';
+      return;
+    }
     if (!res.ok) throw new Error("Failed to update score");
     renderAnalysis();
   } catch (err) {

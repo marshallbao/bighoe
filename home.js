@@ -1,5 +1,6 @@
 const els = {
   classSelect: document.querySelector("#classSelect"),
+  logoutBtn: document.querySelector("#logoutBtn"),
   activeClassMeta: document.querySelector("#activeClassMeta"),
   classNameMeta: document.querySelector("#classNameMeta"),
   studentCount: document.querySelector("#studentCount"),
@@ -40,6 +41,12 @@ async function render() {
 els.classSelect.addEventListener("change", async () => {
   BighoeData.setActiveClass(els.classSelect.value);
   await render();
+});
+
+els.logoutBtn.addEventListener("click", () => {
+  sessionStorage.removeItem('bighoe_token');
+  sessionStorage.removeItem('bighoe_csrf_token');
+  window.location.href = 'login.html';
 });
 
 render();
