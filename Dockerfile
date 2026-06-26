@@ -26,9 +26,6 @@ COPY --chown=node:node server.js app.js shared.js home.js students.js seating.ht
 COPY --chown=node:node homework.js homework.html homework-analysis.js homework-analysis.html ./
 COPY --chown=node:node grades.js grades.html styles.css ./
 COPY --chown=node:node assets ./assets
-COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 EXPOSE 5173
 

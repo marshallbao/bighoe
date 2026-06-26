@@ -340,6 +340,20 @@ input:focus {
   align-items: start;
 }
 
+.homework-shell .topbar,
+.homework-shell .manager-grid {
+  max-width: min(1680px, calc(100vw - 32px));
+}
+
+.homework-shell {
+  padding-left: 16px;
+  padding-right: 16px;
+}
+
+.homework-shell .manager-grid {
+  grid-template-columns: 320px minmax(0, 1fr);
+}
+
 .tool-board,
 .data-panel {
   background: var(--surface);
@@ -656,13 +670,18 @@ input:focus {
 }
 
 .weekly-record-row {
-  grid-template-columns: 52px minmax(96px, 1fr) repeat(7, minmax(98px, 1fr));
-  min-width: 860px;
+  grid-template-columns: 44px minmax(76px, 1.2fr) repeat(7, minmax(72px, 1fr));
+  min-width: 0;
+  gap: 6px;
 }
 
 .weekly-record-row.record-head span {
-  display: grid;
-  gap: 2px;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 4px;
+  text-align: center;
+  white-space: nowrap;
 }
 
 .weekly-record-row.record-head small {
@@ -677,8 +696,8 @@ input:focus {
 
 .week-status-cell .status-select {
   height: 36px;
-  padding: 0 8px;
-  font-size: 13px;
+  padding: 0 6px;
+  font-size: 12px;
 }
 
 .no-homework {
@@ -1087,6 +1106,12 @@ input:focus {
 
   .workspace {
     padding: 18px;
+  }
+}
+
+@media (max-width: 1120px) {
+  .homework-shell .manager-grid {
+    grid-template-columns: 1fr;
   }
 }
 

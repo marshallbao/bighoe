@@ -209,7 +209,7 @@ function renderRecordTable(task, students) {
   header.innerHTML = "<span>序号</span><span>姓名</span>";
   dates.forEach((dateText, index) => {
     const day = document.createElement("span");
-    day.innerHTML = `${weekdayLabels[index]}<small>${formatShortDate(dateText)}</small>`;
+    day.innerHTML = `${weekdayLabels[index]} <small>${formatShortDate(dateText)}</small>`;
     header.appendChild(day);
   });
   homeworkEls.recordTable.appendChild(header);
