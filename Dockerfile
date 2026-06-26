@@ -29,5 +29,4 @@ COPY --chown=node:node assets ./assets
 
 EXPOSE 5173
 
-ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["npm", "start"]

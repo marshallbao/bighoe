@@ -659,10 +659,10 @@ input:focus {
 
 .record-row {
   display: grid;
-  grid-template-columns: 52px minmax(120px, 1fr) 160px;
+  grid-template-columns: 52px minmax(120px, 1fr) 72px;
   gap: 8px;
   align-items: center;
-  min-width: 420px;
+  min-width: 340px;
   border: 1px solid var(--line);
   border-radius: 7px;
   padding: 8px;
@@ -786,6 +786,11 @@ input:focus {
 .record-row .status-select {
   font-weight: 700;
   transition: 0.16s ease;
+  min-width: 72px;
+  max-width: 72px;
+  padding: 4px 6px;
+  font-size: 12px;
+  text-align: center;
 }
 
 .status-select.status-submitted {
