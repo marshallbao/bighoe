@@ -4,7 +4,6 @@
   const LEGACY_SEAT_PREFIX = "bighoe-seat-plan-v1";
   const LEGACY_HOMEWORK_KEY = "bighoe-homework-v1";
   const LEGACY_GRADES_KEY = "bighoe-grades-v1";
-  const TOKEN_STORAGE_KEY = "bighoe_token";
   const CSRF_TOKEN_STORAGE_KEY = "bighoe_csrf_token";
 
   let cachedState = {
@@ -15,7 +14,7 @@
   let cachedStudents = [];
 
   function getToken() {
-    return sessionStorage.getItem(TOKEN_STORAGE_KEY);
+    return null;
   }
 
   function getCsrfToken() {
@@ -23,7 +22,7 @@
   }
 
   function setToken(token) {
-    sessionStorage.setItem(TOKEN_STORAGE_KEY, token);
+    void token;
   }
 
   function setCsrfToken(token) {
@@ -31,8 +30,25 @@
   }
 
   function clearAuth() {
-    sessionStorage.removeItem(TOKEN_STORAGE_KEY);
     sessionStorage.removeItem(CSRF_TOKEN_STORAGE_KEY);
+  }
+
+  async function ensureCsrfToken() {
+    const current = getCsrfToken();
+    if (current) return current;
+
+    const response = await fetch("/api/auth/verify", {
+      method: "POST",
+      credentials: "same-origin"
+    });
+    if (!response.ok) return null;
+
+    const data = await response.json();
+    if (data.csrfToken) {
+      setCsrfToken(data.csrfToken);
+      return data.csrfToken;
+    }
+    return null;
   }
 
   function createId(prefix) {
@@ -47,24 +63,21 @@
   }
 
   async function authenticatedFetch(url, options = {}) {
-    const token = getToken();
-    const csrfToken = getCsrfToken();
+    const needsCsrf = options.method && options.method !== "GET";
+    const csrfToken = needsCsrf ? await ensureCsrfToken() : getCsrfToken();
     const headers = {
       "Content-Type": "application/json",
       ...(options.headers || {})
     };
 
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
-    }
-
-    if (csrfToken && options.method && options.method !== "GET") {
+    if (csrfToken && needsCsrf) {
       headers["X-CSRF-Token"] = csrfToken;
     }
 
     const response = await fetch(url, {
       ...options,
-      headers
+      headers,
+      credentials: "same-origin"
     });
 
     if (response.status === 401) {
@@ -346,6 +359,7 @@
     setActiveClass,
     deleteClass,
     deleteStudent,
+    authenticatedFetch,
     getToken,
     getCsrfToken,
     setToken,

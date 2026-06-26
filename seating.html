@@ -6,9 +6,20 @@
     <title>学生座次安排 - 大锄头</title>
     <link rel="stylesheet" href="styles.css" />
     <script>
-      if (!sessionStorage.getItem('bighoe_token')) {
-        window.location.href = 'login.html';
-      }
+      (async function checkAuth() {
+        try {
+          const response = await fetch('/api/auth/verify', {
+            method: 'POST',
+            credentials: 'same-origin'
+          });
+          if (!response.ok) throw new Error('Unauthorized');
+          const data = await response.json();
+          if (data.csrfToken) sessionStorage.setItem('bighoe_csrf_token', data.csrfToken);
+        } catch (err) {
+          sessionStorage.removeItem('bighoe_csrf_token');
+          window.location.href = 'login.html';
+        }
+      })();
     </script>
   </head>
   <body>

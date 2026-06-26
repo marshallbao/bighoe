@@ -256,10 +256,17 @@
         try {
           const response = await fetch('/api/auth/verify', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ token: '' })
+            credentials: 'same-origin'
           });
           const data = await response.json();
+
+          if (data.authenticated && !data.message) {
+            if (data.csrfToken) {
+              sessionStorage.setItem('bighoe_csrf_token', data.csrfToken);
+            }
+            window.location.href = 'index.html';
+            return;
+          }
 
           if (data.authenticated && data.message) {
             infoMessage.classList.add('show');
@@ -288,14 +295,16 @@
           const response = await fetch('/api/auth/login', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ key })
+            body: JSON.stringify({ key }),
+            credentials: 'same-origin'
           });
 
           const data = await response.json();
 
           if (data.success && data.authenticated) {
-            sessionStorage.setItem('bighoe_token', data.token);
-            sessionStorage.setItem('bighoe_csrf_token', data.csrfToken);
+            if (data.csrfToken) {
+              sessionStorage.setItem('bighoe_csrf_token', data.csrfToken);
+            }
             window.location.href = 'index.html';
           } else {
             errorMessage.textContent = data.error || '认证失败，请检查密钥是否正确';

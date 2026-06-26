@@ -600,6 +600,42 @@ input:focus {
   font-size: 24px;
 }
 
+.summary-due {
+  border-color: #bfd4ee;
+  background: #f3f8ff;
+}
+
+.summary-due strong {
+  color: #315f94;
+}
+
+.summary-submitted {
+  border-color: #b8ded5;
+  background: #f3fbf8;
+}
+
+.summary-submitted strong {
+  color: #1e6f55;
+}
+
+.summary-missing {
+  border-color: #f0c0c0;
+  background: #fff7f7;
+}
+
+.summary-missing strong {
+  color: #9f2f2f;
+}
+
+.summary-rate {
+  border-color: #edd39a;
+  background: #fffbef;
+}
+
+.summary-rate strong {
+  color: #8a5b10;
+}
+
 .record-table,
 .analysis-table {
   display: grid;
@@ -619,6 +655,43 @@ input:focus {
   background: #fff;
 }
 
+.weekly-record-row {
+  grid-template-columns: 52px minmax(96px, 1fr) repeat(7, minmax(98px, 1fr));
+  min-width: 860px;
+}
+
+.weekly-record-row.record-head span {
+  display: grid;
+  gap: 2px;
+}
+
+.weekly-record-row.record-head small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.week-status-cell {
+  min-width: 0;
+}
+
+.week-status-cell .status-select {
+  height: 36px;
+  padding: 0 8px;
+  font-size: 13px;
+}
+
+.no-homework {
+  width: 100%;
+  min-height: 36px;
+  border: 1px dashed var(--line);
+  border-radius: 7px;
+  color: var(--muted);
+  background: #f8fafc;
+  display: grid;
+  place-items: center;
+}
+
 .record-row select,
 .exam-form input,
 .analysis-controls select,
@@ -631,6 +704,99 @@ input:focus {
   padding: 0 10px;
   background: #fff;
   color: var(--ink);
+}
+
+.record-row:not(.record-head) {
+  position: relative;
+  overflow: hidden;
+}
+
+.record-row:not(.record-head)::before {
+  content: "";
+  width: 4px;
+  height: 100%;
+  position: absolute;
+  inset: 0 auto 0 0;
+}
+
+.record-status-submitted {
+  border-color: #b8ded5;
+  background: #f3fbf8;
+}
+
+.record-status-submitted::before {
+  background: #2f9d76;
+}
+
+.record-status-missing {
+  border-color: #f0c0c0;
+  background: #fff7f7;
+}
+
+.record-status-missing::before {
+  background: #c94b4b;
+}
+
+.record-status-late {
+  border-color: #edd39a;
+  background: #fffbef;
+}
+
+.record-status-late::before {
+  background: #c9821e;
+}
+
+.record-status-excused {
+  border-color: #bfd4ee;
+  background: #f3f8ff;
+}
+
+.record-status-excused::before {
+  background: #497fbd;
+}
+
+.record-status-not_required {
+  border-color: #d4cfdf;
+  background: #faf8fd;
+}
+
+.record-status-not_required::before {
+  background: #7d708f;
+}
+
+.record-row .status-select {
+  font-weight: 700;
+  transition: 0.16s ease;
+}
+
+.status-select.status-submitted {
+  border-color: #7fc4ad;
+  background: #e8f7f1;
+  color: #1e6f55;
+}
+
+.status-select.status-missing {
+  border-color: #e59a9a;
+  background: #fff0f0;
+  color: #9f2f2f;
+}
+
+.status-select.status-late {
+  border-color: #e1ba65;
+  background: #fff6d9;
+  color: #8a5b10;
+}
+
+.status-select.status-excused {
+  border-color: #9fbde0;
+  background: #eaf3ff;
+  color: #315f94;
+}
+
+.status-select.status-not_required {
+  border-color: #bfb5cf;
+  background: #f2eef8;
+  color: #625370;
 }
 
 .record-head,

@@ -29,27 +29,35 @@ let selectedHomeworkId = null;
 let classStudentsCache = [];
 let classTasksCache = [];
 
+function dateText(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function localDate(dateTextValue) {
+  const [year, month, day] = dateTextValue.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
 function todayText() {
-  return new Date().toISOString().slice(0, 10);
+  return dateText(new Date());
 }
 
 function authenticatedFetch(url, options = {}) {
-  const token = sessionStorage.getItem('bighoe_token');
-  const csrfToken = sessionStorage.getItem('bighoe_csrf_token');
-  const headers = {
-    "Content-Type": "application/json",
-    ...(options.headers || {})
-  };
-  
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
+  if (BighoeData.authenticatedFetch) {
+    return BighoeData.authenticatedFetch(url, options);
   }
 
-  if (csrfToken && options.method && options.method !== "GET") {
-    headers["X-CSRF-Token"] = csrfToken;
-  }
-
-  return fetch(url, { ...options, headers });
+  return fetch(url, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers || {})
+    },
+    credentials: "same-origin"
+  });
 }
 
 async function readHomeworkState() {
@@ -58,7 +66,6 @@ async function readHomeworkState() {
   try {
     const res = await authenticatedFetch(`/api/homework?classId=${activeCls.id}`);
     if (res.status === 401 || res.status === 403) {
-      sessionStorage.removeItem('bighoe_token');
       sessionStorage.removeItem('bighoe_csrf_token');
       window.location.href = 'login.html';
       return { tasks: [] };
@@ -87,18 +94,34 @@ function selectedTask() {
   return classTasks().find((task) => task.id === selectedHomeworkId) || classTasks()[0] || null;
 }
 
-function startOfWeek(dateText) {
-  const date = new Date(`${dateText}T00:00:00`);
+function startOfWeek(value) {
+  const date = localDate(value);
   const day = date.getDay() || 7;
   date.setDate(date.getDate() - day + 1);
-  return date.toISOString().slice(0, 10);
+  return dateText(date);
 }
 
-function samePeriod(taskDate, period) {
-  const today = todayText();
-  if (period === "week") return startOfWeek(taskDate) === startOfWeek(today);
-  if (period === "month") return taskDate.slice(0, 7) === today.slice(0, 7);
-  return true;
+function addDays(value, days) {
+  const date = localDate(value);
+  date.setDate(date.getDate() + days);
+  return dateText(date);
+}
+
+function weekDates(weekStart) {
+  return Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
+}
+
+function formatShortDate(dateText) {
+  return dateText.slice(5).replace("-", "/");
+}
+
+function weekTasks(tasks, weekStart) {
+  return tasks.filter((task) => startOfWeek(task.assignedDate) === weekStart);
+}
+
+function taskForDate(tasks, dateText, preferredTaskId) {
+  const matches = tasks.filter((task) => task.assignedDate === dateText);
+  return matches.find((task) => task.id === preferredTaskId) || matches[0] || null;
 }
 
 function renderClassSelectWithOptions(classes, activeClassId) {
@@ -142,6 +165,7 @@ function statusSelect(student, task) {
   const select = document.createElement("select");
   select.dataset.studentId = student.id;
   const current = task.records?.[student.id] || "missing";
+  select.className = `status-select status-${current}`;
   homeworkStatuses.forEach((status) => {
     const option = document.createElement("option");
     option.value = status.value;
@@ -149,7 +173,10 @@ function statusSelect(student, task) {
     option.selected = status.value === current;
     select.appendChild(option);
   });
-  select.addEventListener("change", () => updateRecord(task.id, student.id, select.value));
+  select.addEventListener("change", () => {
+    select.className = `status-select status-${select.value}`;
+    updateRecord(task.id, student.id, select.value);
+  });
   return select;
 }
 
@@ -172,17 +199,40 @@ function renderRecordTable(task, students) {
     return;
   }
 
+  const currentWeekStart = startOfWeek(task.assignedDate);
+  const dates = weekDates(currentWeekStart);
+  const tasksInWeek = weekTasks(classTasks(), currentWeekStart);
+  const weekdayLabels = ["周一", "二", "三", "四", "五", "六", "日"];
+
   const header = document.createElement("div");
-  header.className = "record-row record-head";
-  header.innerHTML = "<span>序号</span><span>姓名</span><span>提交状态</span>";
+  header.className = "record-row record-head weekly-record-row";
+  header.innerHTML = "<span>序号</span><span>姓名</span>";
+  dates.forEach((dateText, index) => {
+    const day = document.createElement("span");
+    day.innerHTML = `${weekdayLabels[index]}<small>${formatShortDate(dateText)}</small>`;
+    header.appendChild(day);
+  });
   homeworkEls.recordTable.appendChild(header);
 
   students.forEach((student, index) => {
     const row = document.createElement("div");
-    row.className = "record-row";
+    row.className = "record-row weekly-record-row";
     row.innerHTML = `<span>${index + 1}</span><strong></strong>`;
     row.querySelector("strong").textContent = student.name;
-    row.appendChild(statusSelect(student, task));
+    dates.forEach((dateText) => {
+      const dayTask = taskForDate(tasksInWeek, dateText, task.id);
+      const cell = document.createElement("div");
+      cell.className = "week-status-cell";
+      if (dayTask) {
+        cell.appendChild(statusSelect(student, dayTask));
+      } else {
+        const empty = document.createElement("span");
+        empty.className = "no-homework";
+        empty.textContent = "-";
+        cell.appendChild(empty);
+      }
+      row.appendChild(cell);
+    });
     homeworkEls.recordTable.appendChild(row);
   });
 }
@@ -200,7 +250,15 @@ function taskSummary(task, students) {
 }
 
 function renderSummary(task, students) {
-  const summary = taskSummary(task, students);
+  const tasks = task ? weekTasks(classTasks(), startOfWeek(task.assignedDate)) : [];
+  const summary = tasks.reduce((totals, item) => {
+    const itemSummary = taskSummary(item, students);
+    totals.due += itemSummary.due;
+    totals.submitted += itemSummary.submitted;
+    totals.missing += itemSummary.missing;
+    totals.onTime += itemSummary.onTime;
+    return totals;
+  }, { due: 0, submitted: 0, missing: 0, onTime: 0 });
   homeworkEls.dueCount.textContent = summary.due;
   homeworkEls.submittedCount.textContent = summary.submitted;
   homeworkEls.missingCount.textContent = summary.missing;
@@ -222,7 +280,6 @@ async function updateRecord(taskId, studentId, status) {
       body: JSON.stringify({ id: taskId, records: task.records })
     });
     if (res.status === 401 || res.status === 403) {
-      sessionStorage.removeItem('bighoe_token');
       sessionStorage.removeItem('bighoe_csrf_token');
       window.location.href = 'login.html';
       return;
@@ -267,12 +324,14 @@ async function createHomework() {
       body: JSON.stringify(task)
     });
     if (res.status === 401 || res.status === 403) {
-      sessionStorage.removeItem('bighoe_token');
       sessionStorage.removeItem('bighoe_csrf_token');
       window.location.href = 'login.html';
       return;
     }
-    if (!res.ok) throw new Error("Failed to create homework");
+    if (!res.ok) {
+      const errorText = await res.text();
+      throw new Error(errorText || "Failed to create homework");
+    }
 
     selectedHomeworkId = task.id;
     homeworkEls.titleInput.value = "";
@@ -299,7 +358,6 @@ async function markAllSubmitted() {
       body: JSON.stringify({ id: task.id, records })
     });
     if (res.status === 401 || res.status === 403) {
-      sessionStorage.removeItem('bighoe_token');
       sessionStorage.removeItem('bighoe_csrf_token');
       window.location.href = 'login.html';
       return;
@@ -339,10 +397,13 @@ async function render() {
 
   const task = selectedTask();
   if (task && selectedHomeworkId !== task.id) selectedHomeworkId = task.id;
+  const title = task
+    ? `${startOfWeek(task.assignedDate)} 至 ${addDays(startOfWeek(task.assignedDate), 6)} 近一周提交状态`
+    : "选择一项作业";
 
   renderClassSelectWithOptions(sharedState.classes, sharedState.activeClassId);
   renderHomeworkList(classTasksCache);
-  homeworkEls.selectedTitle.textContent = task ? `${task.title}（${task.assignedDate}）` : "选择一项作业";
+  homeworkEls.selectedTitle.textContent = title;
   renderSummary(task, classStudentsCache);
   renderRecordTable(task, classStudentsCache);
 }

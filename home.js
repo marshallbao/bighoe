@@ -43,8 +43,17 @@ els.classSelect.addEventListener("change", async () => {
   await render();
 });
 
-els.logoutBtn.addEventListener("click", () => {
-  sessionStorage.removeItem('bighoe_token');
+els.logoutBtn.addEventListener("click", async () => {
+  const csrfToken = sessionStorage.getItem('bighoe_csrf_token');
+  try {
+    await fetch('/api/auth/logout', {
+      method: 'POST',
+      headers: csrfToken ? { 'X-CSRF-Token': csrfToken } : {},
+      credentials: 'same-origin'
+    });
+  } catch (err) {
+    console.error('Failed to logout:', err);
+  }
   sessionStorage.removeItem('bighoe_csrf_token');
   window.location.href = 'login.html';
 });

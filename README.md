@@ -148,6 +148,22 @@ http://127.0.0.1:5173/
 
 ### 使用 Docker Compose
 
+可选环境变量：
+
+```bash
+BIGHOE_API_KEY=YourStrongKey12345
+BIGHOE_DB_PATH=/data/bighoe.db
+```
+
+如果设置了 `BIGHOE_API_KEY`，密钥至少需要 16 位，并包含大小写字母和数字。`BIGHOE_DB_PATH` 用于指定 SQLite 数据库文件路径，Docker Compose 默认使用 `/data/bighoe.db`，并挂载本机 `./data` 目录保存数据库。
+
+如果之前使用 `./bighoe.db` 单文件挂载，请先迁移到 `./data/bighoe.db`：
+
+```bash
+mkdir -p data
+cp bighoe.db data/bighoe.db
+```
+
 启动：
 
 ```bash

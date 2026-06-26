@@ -86,22 +86,17 @@ function pruneMissingStudents() {
 }
 
 function authenticatedFetch(url, options = {}) {
-  const token = sessionStorage.getItem('bighoe_token');
   const csrfToken = sessionStorage.getItem('bighoe_csrf_token');
   const headers = {
     "Content-Type": "application/json",
     ...(options.headers || {})
   };
-  
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
 
   if (csrfToken && options.method && options.method !== "GET") {
     headers["X-CSRF-Token"] = csrfToken;
   }
 
-  return fetch(url, { ...options, headers });
+  return fetch(url, { ...options, headers, credentials: "same-origin" });
 }
 
 async function saveState() {
@@ -122,7 +117,6 @@ async function saveState() {
         })
       });
       if (res.status === 401 || res.status === 403) {
-        sessionStorage.removeItem('bighoe_token');
         sessionStorage.removeItem('bighoe_csrf_token');
         window.location.href = 'login.html';
         return;
@@ -172,7 +166,7 @@ async function loadState() {
   try {
     const plans = await authenticatedFetch(`/api/seating/plans?classId=${activeCls.id}`).then((r) => r.json());
     if (plans.status === 401) {
-      sessionStorage.removeItem('bighoe_api_key');
+      sessionStorage.removeItem('bighoe_csrf_token');
       window.location.href = 'login.html';
       return;
     }

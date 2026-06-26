@@ -30,22 +30,17 @@ function todayText() {
 }
 
 function authenticatedFetch(url, options = {}) {
-  const token = sessionStorage.getItem('bighoe_token');
   const csrfToken = sessionStorage.getItem('bighoe_csrf_token');
   const headers = {
     "Content-Type": "application/json",
     ...(options.headers || {})
   };
-  
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
 
   if (csrfToken && options.method && options.method !== "GET") {
     headers["X-CSRF-Token"] = csrfToken;
   }
 
-  return fetch(url, { ...options, headers });
+  return fetch(url, { ...options, headers, credentials: "same-origin" });
 }
 
 async function readGradeState() {
@@ -57,7 +52,6 @@ async function readGradeState() {
     
     if (subjectsRes.status === 401 || subjectsRes.status === 403 || 
         examsRes.status === 401 || examsRes.status === 403) {
-      sessionStorage.removeItem('bighoe_token');
       sessionStorage.removeItem('bighoe_csrf_token');
       window.location.href = 'login.html';
       return { subjects: [], exams: [] };
@@ -126,7 +120,6 @@ async function addSubject() {
       })
     });
     if (res.status === 401 || res.status === 403) {
-      sessionStorage.removeItem('bighoe_token');
       sessionStorage.removeItem('bighoe_csrf_token');
       window.location.href = 'login.html';
       return;
@@ -146,7 +139,6 @@ async function toggleSubject(subjectId, active) {
       body: JSON.stringify({ id: subjectId, active })
     });
     if (res.status === 401 || res.status === 403) {
-      sessionStorage.removeItem('bighoe_token');
       sessionStorage.removeItem('bighoe_csrf_token');
       window.location.href = 'login.html';
       return;
@@ -189,7 +181,6 @@ async function createExam() {
       body: JSON.stringify(exam)
     });
     if (res.status === 401 || res.status === 403) {
-      sessionStorage.removeItem('bighoe_token');
       sessionStorage.removeItem('bighoe_csrf_token');
       window.location.href = 'login.html';
       return;
@@ -224,7 +215,6 @@ async function updateScore(examId, studentId, subjectId, value) {
       body: JSON.stringify({ id: examId, scores: exam.scores })
     });
     if (res.status === 401 || res.status === 403) {
-      sessionStorage.removeItem('bighoe_token');
       sessionStorage.removeItem('bighoe_csrf_token');
       window.location.href = 'login.html';
       return;

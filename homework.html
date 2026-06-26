@@ -6,9 +6,20 @@
     <title>作业提交记录 - 大锄头</title>
     <link rel="stylesheet" href="styles.css" />
     <script>
-      if (!sessionStorage.getItem('bighoe_token')) {
-        window.location.href = 'login.html';
-      }
+      (async function checkAuth() {
+        try {
+          const response = await fetch('/api/auth/verify', {
+            method: 'POST',
+            credentials: 'same-origin'
+          });
+          if (!response.ok) throw new Error('Unauthorized');
+          const data = await response.json();
+          if (data.csrfToken) sessionStorage.setItem('bighoe_csrf_token', data.csrfToken);
+        } catch (err) {
+          sessionStorage.removeItem('bighoe_csrf_token');
+          window.location.href = 'login.html';
+        }
+      })();
     </script>
   </head>
   <body>
@@ -19,7 +30,7 @@
           <a class="back-link" href="index.html">返回工具首页</a>
           <p class="eyebrow">Homework</p>
           <h1>作业提交记录</h1>
-          <p>按班级记录每日作业提交情况，自动汇总未交和提交率</p>
+          <p>按班级记录每日作业提交情况，按近一周汇总学生完成状态</p>
         </div>
         <label class="class-switcher">
           当前班级
@@ -82,16 +93,16 @@
               <h2 id="selectedHomeworkTitle">选择一项作业</h2>
             </div>
             <div class="segmented-control">
-              <button id="markAllSubmittedBtn" type="button">全班已交</button>
-              <button id="copyMissingBtn" type="button">复制未交名单</button>
+              <button id="markAllSubmittedBtn" type="button">所选作业全班已交</button>
+              <button id="copyMissingBtn" type="button">复制所选作业未交名单</button>
             </div>
           </div>
 
           <div class="summary-grid">
-            <div class="summary-card"><span>应交</span><strong id="dueCount">0</strong></div>
-            <div class="summary-card"><span>已交</span><strong id="submittedCount">0</strong></div>
-            <div class="summary-card"><span>未交</span><strong id="missingCount">0</strong></div>
-            <div class="summary-card"><span>按时率</span><strong id="onTimeRate">0%</strong></div>
+            <div class="summary-card summary-due"><span>本周应交</span><strong id="dueCount">0</strong></div>
+            <div class="summary-card summary-submitted"><span>本周已交</span><strong id="submittedCount">0</strong></div>
+            <div class="summary-card summary-missing"><span>本周未交</span><strong id="missingCount">0</strong></div>
+            <div class="summary-card summary-rate"><span>本周按时率</span><strong id="onTimeRate">0%</strong></div>
           </div>
 
           <div class="panel-block first">

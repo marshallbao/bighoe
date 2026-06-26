@@ -20,22 +20,17 @@ function todayText() {
 }
 
 function authenticatedFetch(url, options = {}) {
-  const token = sessionStorage.getItem('bighoe_token');
   const csrfToken = sessionStorage.getItem('bighoe_csrf_token');
   const headers = {
     "Content-Type": "application/json",
     ...(options.headers || {})
   };
-  
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
 
   if (csrfToken && options.method && options.method !== "GET") {
     headers["X-CSRF-Token"] = csrfToken;
   }
 
-  return fetch(url, { ...options, headers });
+  return fetch(url, { ...options, headers, credentials: "same-origin" });
 }
 
 async function readHomeworkState() {
@@ -44,7 +39,6 @@ async function readHomeworkState() {
   try {
     const res = await authenticatedFetch(`/api/homework?classId=${activeCls.id}`);
     if (res.status === 401 || res.status === 403) {
-      sessionStorage.removeItem('bighoe_token');
       sessionStorage.removeItem('bighoe_csrf_token');
       window.location.href = 'login.html';
       return { tasks: [] };

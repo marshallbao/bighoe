@@ -7,26 +7,23 @@
     <link rel="stylesheet" href="styles.css" />
     <script>
       async function checkAuth() {
-        const token = sessionStorage.getItem('bighoe_token');
-        if (!token) {
-          window.location.href = 'login.html';
-          return;
-        }
-        
         try {
           const response = await fetch('/api/auth/verify', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ token })
+            credentials: 'same-origin'
           });
           
           if (!response.ok) {
-            sessionStorage.removeItem('bighoe_token');
             sessionStorage.removeItem('bighoe_csrf_token');
             window.location.href = 'login.html';
+            return;
+          }
+
+          const data = await response.json();
+          if (data.csrfToken) {
+            sessionStorage.setItem('bighoe_csrf_token', data.csrfToken);
           }
         } catch (err) {
-          sessionStorage.removeItem('bighoe_token');
           sessionStorage.removeItem('bighoe_csrf_token');
           window.location.href = 'login.html';
         }

@@ -11,6 +11,7 @@ const host = process.env.HOST || "0.0.0.0";
 const API_KEY = process.env.BIGHOE_API_KEY;
 const AUTH_ENABLED = !!API_KEY;
 const SESSION_EXPIRE_MS = 24 * 60 * 60 * 1000;
+const SESSION_COOKIE_NAME = "bighoe_session";
 
 const sessions = new Map();
 
@@ -68,7 +69,8 @@ function cleanupExpiredSessions() {
 setInterval(cleanupExpiredSessions, 60 * 60 * 1000);
 
 // Initialize SQLite database
-const dbPath = path.resolve(root, "bighoe.db");
+const dbPath = path.resolve(root, process.env.BIGHOE_DB_PATH || "bighoe.db");
+fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 const db = new Database(dbPath);
 
 // Enable foreign keys
@@ -190,8 +192,8 @@ function readJSONBody(req) {
 }
 
 // Helper to send JSON response
-function sendJSON(res, data, status = 200) {
-  res.writeHead(status, { "Content-Type": "application/json;charset=utf-8" });
+function sendJSON(res, data, status = 200, headers = {}) {
+  res.writeHead(status, { "Content-Type": "application/json;charset=utf-8", ...headers });
   res.end(JSON.stringify(data));
 }
 
@@ -208,15 +210,39 @@ function runInTransaction(callback) {
   }
 }
 
+function parseCookies(req) {
+  const header = req.headers.cookie || "";
+  const cookies = {};
+  header.split(";").forEach((item) => {
+    const index = item.indexOf("=");
+    if (index === -1) return;
+    const key = item.slice(0, index).trim();
+    const value = item.slice(index + 1).trim();
+    if (!key) return;
+    try {
+      cookies[key] = decodeURIComponent(value);
+    } catch (err) {
+      cookies[key] = value;
+    }
+  });
+  return cookies;
+}
+
+function createSessionCookie(token) {
+  const maxAge = Math.floor(SESSION_EXPIRE_MS / 1000);
+  return `${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAge}`;
+}
+
+function createClearSessionCookie() {
+  return `${SESSION_COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`;
+}
+
 function checkAuth(req) {
   if (!AUTH_ENABLED) return { valid: true, session: null };
-  
-  const authHeader = req.headers["authorization"];
-  if (!authHeader) return { valid: false, session: null };
-  
-  const [type, token] = authHeader.split(" ");
-  if (type !== "Bearer") return { valid: false, session: null };
-  
+
+  const token = parseCookies(req)[SESSION_COOKIE_NAME];
+  if (!token) return { valid: false, session: null };
+
   const session = validateSession(token);
   if (!session) return { valid: false, session: null };
   
@@ -229,13 +255,13 @@ const server = http.createServer(async (req, res) => {
 
   // API Routing
   if (pathname.startsWith("/api/")) {
-    if (pathname !== "/api/auth/login" && pathname !== "/api/auth/verify") {
+    if (pathname !== "/api/auth/login" && pathname !== "/api/auth/verify" && pathname !== "/api/auth/logout") {
       const authResult = checkAuth(req);
       if (!authResult.valid) {
         return sendJSON(res, { error: "Unauthorized" }, 401);
       }
       
-      if (req.method !== "GET") {
+      if (AUTH_ENABLED && req.method !== "GET") {
         const csrfToken = req.headers["x-csrf-token"];
         if (!csrfToken || authResult.session.csrfToken !== csrfToken) {
           return sendJSON(res, { error: "Invalid CSRF token" }, 403);
@@ -251,31 +277,42 @@ const server = http.createServer(async (req, res) => {
         if (AUTH_ENABLED) {
           if (key === API_KEY) {
             const { token, csrfToken } = createSession(key);
-            return sendJSON(res, { success: true, authenticated: true, token, csrfToken });
+            return sendJSON(
+              res,
+              { success: true, authenticated: true, csrfToken },
+              200,
+              { "Set-Cookie": createSessionCookie(token) }
+            );
           } else {
             return sendJSON(res, { success: false, authenticated: false, error: "Invalid API key" }, 401);
           }
         } else {
-          const { token, csrfToken } = createSession("");
-          return sendJSON(res, { success: true, authenticated: true, token, csrfToken, message: "Authentication is disabled" });
+          return sendJSON(res, { success: true, authenticated: true, message: "Authentication is disabled" });
         }
       }
       
       if (pathname === "/api/auth/verify" && req.method === "POST") {
-        const body = await readJSONBody(req);
-        const { token } = body;
-        
         if (!AUTH_ENABLED) {
-          const { token: newToken, csrfToken } = createSession("");
-          return sendJSON(res, { success: true, authenticated: true, token: newToken, csrfToken, message: "Authentication is disabled" });
+          return sendJSON(res, { success: true, authenticated: true, message: "Authentication is disabled" });
         }
         
-        const session = validateSession(token);
-        if (session && session.apiKey === API_KEY) {
+        const { valid, session } = checkAuth(req);
+        if (valid) {
           return sendJSON(res, { success: true, authenticated: true, csrfToken: session.csrfToken });
         } else {
           return sendJSON(res, { success: false, authenticated: false }, 401);
         }
+      }
+
+      if (pathname === "/api/auth/logout" && req.method === "POST") {
+        const token = parseCookies(req)[SESSION_COOKIE_NAME];
+        if (token) sessions.delete(token);
+        return sendJSON(
+          res,
+          { success: true },
+          200,
+          { "Set-Cookie": createClearSessionCookie() }
+        );
       }
       
       // 1. Classes API

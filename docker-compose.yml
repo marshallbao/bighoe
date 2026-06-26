@@ -1,12 +1,15 @@
 services:
   bighoe:
-    build: .
     container_name: bighoe
+    build: .
+    image: crpi-6w1shff74e1u4v07.cn-shanghai.personal.cr.aliyuncs.com/sh-sonatype/bighoe:v20260625-4
     environment:
-      HOST: 0.0.0.0
+      HOST: 0.0.0.0 
       PORT: 5173
+      BIGHOE_API_KEY: ${BIGHOE_API_KEY:-Bighoeapikey123456}
+      BIGHOE_DB_PATH: ${BIGHOE_DB_PATH:-/data/bighoe.db}
     ports:
       - "5173:5173"
     volumes:
-      - ./bighoe.db:/app/bighoe.db
+      - ./data:/data
     restart: unless-stopped
