@@ -96,8 +96,9 @@ function selectedTask() {
 
 function startOfWeek(value) {
   const date = localDate(value);
-  const day = date.getDay() || 7;
-  date.setDate(date.getDate() - day + 1);
+  const day = date.getDay();
+  const offset = day >= 5 ? day - 5 : day + 2;
+  date.setDate(date.getDate() - offset);
   return dateText(date);
 }
 
@@ -202,15 +203,34 @@ function renderRecordTable(task, students) {
   const currentWeekStart = startOfWeek(task.assignedDate);
   const dates = weekDates(currentWeekStart);
   const tasksInWeek = weekTasks(classTasks(), currentWeekStart);
-  const weekdayLabels = ["周一", "二", "三", "四", "五", "六", "日"];
+  const weekdayLabels = ["周五", "六", "日", "周一", "二", "三", "四"];
+
+  const dateTasksMap = {};
+  dates.forEach(dateText => {
+    dateTasksMap[dateText] = tasksInWeek.filter(t => t.assignedDate === dateText);
+  });
 
   const header = document.createElement("div");
   header.className = "record-row record-head weekly-record-row";
   header.innerHTML = "<span>序号</span><span>姓名</span>";
+  
   dates.forEach((dateText, index) => {
-    const day = document.createElement("span");
-    day.innerHTML = `${weekdayLabels[index]} <small>${formatShortDate(dateText)}</small>`;
-    header.appendChild(day);
+    const dayCell = document.createElement("div");
+    dayCell.className = "week-day-header";
+    const dayLabel = document.createElement("span");
+    dayLabel.className = "day-label";
+    dayLabel.innerHTML = `${weekdayLabels[index]} <small>${formatShortDate(dateText)}</small>`;
+    dayCell.appendChild(dayLabel);
+    
+    const subjects = dateTasksMap[dateText].map(t => t.subject || "未命名");
+    subjects.forEach(subject => {
+      const subjectLabel = document.createElement("span");
+      subjectLabel.className = "subject-label";
+      subjectLabel.textContent = subject;
+      dayCell.appendChild(subjectLabel);
+    });
+    
+    header.appendChild(dayCell);
   });
   homeworkEls.recordTable.appendChild(header);
 
@@ -219,19 +239,26 @@ function renderRecordTable(task, students) {
     row.className = "record-row weekly-record-row";
     row.innerHTML = `<span>${index + 1}</span><strong></strong>`;
     row.querySelector("strong").textContent = student.name;
+    
     dates.forEach((dateText) => {
-      const dayTask = taskForDate(tasksInWeek, dateText, task.id);
-      const cell = document.createElement("div");
-      cell.className = "week-status-cell";
-      if (dayTask) {
-        cell.appendChild(statusSelect(student, dayTask));
+      const dayTasks = dateTasksMap[dateText];
+      const dayCell = document.createElement("div");
+      dayCell.className = "week-day-cell";
+      
+      if (dayTasks.length > 0) {
+        dayTasks.forEach(dayTask => {
+          const subjectCell = document.createElement("div");
+          subjectCell.className = "subject-cell";
+          subjectCell.appendChild(statusSelect(student, dayTask));
+          dayCell.appendChild(subjectCell);
+        });
       } else {
         const empty = document.createElement("span");
         empty.className = "no-homework";
         empty.textContent = "-";
-        cell.appendChild(empty);
+        dayCell.appendChild(empty);
       }
-      row.appendChild(cell);
+      row.appendChild(dayCell);
     });
     homeworkEls.recordTable.appendChild(row);
   });

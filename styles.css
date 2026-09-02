@@ -700,6 +700,44 @@ input:focus {
   font-size: 12px;
 }
 
+.week-day-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.day-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 4px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.subject-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+  padding: 2px 6px;
+  background: #f1f5f9;
+  border-radius: 4px;
+}
+
+.week-day-cell {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: center;
+  align-items: center;
+  min-height: 40px;
+}
+
+.subject-cell {
+  flex-shrink: 0;
+}
+
 .no-homework {
   width: 100%;
   min-height: 36px;
